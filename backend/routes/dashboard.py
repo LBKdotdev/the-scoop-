@@ -1,0 +1,383 @@
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.orm import Session
+from sqlalchemy import func, desc
+from datetime import datetime, timedelta
+import math
+from database import get_db
+from models import Flavor, Production, DailyCount, ParLevel
+
+router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
+
+
+@router.get("/inventory")
+def current_inventory(db: Session = Depends(get_db)):
+    """Current on-hand inventory per flavor per product type,
+    based on last count + production since last count."""
+    flavors = db.query(Flavor).filter(Flavor.active == True).order_by(Flavor.category, Flavor.name).all()
+    inventory = []
+
+    for flavor in flavors:
+        flavor_data = {
+            "flavor_id": flavor.id,
+            "name": flavor.name,
+            "category": flavor.category,
+            "products": {},
+        }
+        for ptype in ("tub", "pint", "quart"):
+            last_count_row = (
+                db.query(DailyCount)
+                .filter(
+                    DailyCount.flavor_id == flavor.id,
+                    DailyCount.product_type == ptype,
+                )
+                .order_by(desc(DailyCount.counted_at))
+                .first()
+            )
+            last_count = last_count_row.count if last_count_row else 0
+            last_count_time = (
+                last_count_row.counted_at
+                if last_count_row
+                else datetime.min
+            )
+
+            produced_since = (
+                db.query(func.coalesce(func.sum(Production.quantity), 0))
+                .filter(
+                    Production.flavor_id == flavor.id,
+                    Production.product_type == ptype,
+                    Production.logged_at > last_count_time,
+                )
+                .scalar()
+            )
+
+            flavor_data["products"][ptype] = {
+                "on_hand": last_count + produced_since,
+                "last_count": last_count,
+                "produced_since": produced_since,
+            }
+        inventory.append(flavor_data)
+
+    return inventory
+
+
+@router.get("/make-list")
+def morning_make_list(db: Session = Depends(get_db)):
+    """Morning make list: what to produce based on par levels vs current on-hand."""
+    inv = current_inventory(db=db)
+
+    # Build on-hand lookup: (flavor_id, product_type) -> on_hand
+    on_hand_map = {}
+    for item in inv:
+        for ptype in ("tub", "pint", "quart"):
+            on_hand_map[(item["flavor_id"], ptype)] = item["products"][ptype]["on_hand"]
+
+    # Check if today is a weekend (Fri=4, Sat=5, Sun=6)
+    today = datetime.utcnow().weekday()
+    is_weekend = today in (4, 5, 6)
+
+    # Get all par levels for active flavors
+    par_levels = (
+        db.query(ParLevel, Flavor.name, Flavor.category)
+        .join(Flavor, ParLevel.flavor_id == Flavor.id)
+        .filter(Flavor.active == True)
+        .all()
+    )
+
+    # Build per-flavor, per-type deficit info
+    # Key: flavor_id -> { info + products: { tub/pint/quart: {...} } }
+    flavor_map = {}
+    for par, flavor_name, category in par_levels:
+        on_hand = on_hand_map.get((par.flavor_id, par.product_type), 0)
+        target = par.weekend_target if (is_weekend and par.weekend_target) else par.target
+
+        if par.flavor_id not in flavor_map:
+            flavor_map[par.flavor_id] = {
+                "flavor_id": par.flavor_id,
+                "flavor_name": flavor_name,
+                "category": category,
+                "is_weekend": is_weekend,
+                "products": {},
+            }
+
+        if target <= 0:
+            continue
+
+        deficit = max(0, target - on_hand)
+        batch = max(0.25, par.batch_size)
+        batches_needed = deficit / batch if deficit > 0 else 0
+
+        flavor_map[par.flavor_id]["products"][par.product_type] = {
+            "on_hand": on_hand,
+            "target": target,
+            "minimum": par.minimum,
+            "batch_size": par.batch_size,
+            "deficit": deficit,
+            "batches_needed": batches_needed,
+            "status": "critical" if on_hand <= par.minimum and deficit > 0
+                      else "below_par" if deficit > 0
+                      else "stocked",
+        }
+
+    # Build final list: one row per flavor with combined batch count
+    make_list = []
+    for fid, fdata in flavor_map.items():
+        products = fdata["products"]
+        if not products:
+            continue
+
+        # Batches based on tub deficit (primary product with real count data)
+        tub = products.get("tub")
+        total_batches = math.ceil(tub["batches_needed"]) if tub and tub["batches_needed"] > 0 else 0
+
+        # Overall status: worst status across product types
+        statuses = [p["status"] for p in products.values()]
+        if "critical" in statuses:
+            status = "critical"
+        elif "below_par" in statuses:
+            status = "below_par"
+        else:
+            status = "stocked"
+
+        make_list.append({
+            "flavor_id": fdata["flavor_id"],
+            "flavor_name": fdata["flavor_name"],
+            "category": fdata["category"],
+            "is_weekend": fdata["is_weekend"],
+            "products": products,
+            "total_batches": total_batches,
+            "status": status,
+        })
+
+    # Sort: critical first, then below_par, then stocked; within each by batches desc
+    status_order = {"critical": 0, "below_par": 1, "stocked": 2}
+    make_list.sort(key=lambda x: (
+        status_order.get(x["status"], 9),
+        -x["total_batches"],
+    ))
+
+    return make_list
+
+
+@router.get("/consumption")
+def daily_consumption(days: int = Query(7, ge=1, le=90), db: Session = Depends(get_db)):
+    """Calculate daily consumption per flavor per product type.
+
+    Consumed = previous_count + produced_between - current_count
+    """
+    since = datetime.utcnow() - timedelta(days=days)
+    flavors = db.query(Flavor).filter(Flavor.active == True).all()
+    consumption_data = []
+
+    for flavor in flavors:
+        for ptype in ("tub", "pint", "quart"):
+            counts = (
+                db.query(DailyCount)
+                .filter(
+                    DailyCount.flavor_id == flavor.id,
+                    DailyCount.product_type == ptype,
+                    DailyCount.counted_at >= since,
+                )
+                .order_by(DailyCount.counted_at)
+                .all()
+            )
+            for i in range(1, len(counts)):
+                prev = counts[i - 1]
+                curr = counts[i]
+                prod_between = (
+                    db.query(func.coalesce(func.sum(Production.quantity), 0))
+                    .filter(
+                        Production.flavor_id == flavor.id,
+                        Production.product_type == ptype,
+                        Production.logged_at > prev.counted_at,
+                        Production.logged_at <= curr.counted_at,
+                    )
+                    .scalar()
+                )
+                consumed = prev.count + prod_between - curr.count
+                consumption_data.append(
+                    {
+                        "flavor_id": flavor.id,
+                        "flavor_name": flavor.name,
+                        "product_type": ptype,
+                        "consumed": max(0, consumed),
+                        "date": curr.counted_at.strftime("%Y-%m-%d") if curr.counted_at else None,
+                    }
+                )
+
+    return consumption_data
+
+
+@router.get("/popularity")
+def flavor_popularity(days: int = Query(7, ge=1, le=90), db: Session = Depends(get_db)):
+    """Rank flavors by total consumption over the period."""
+    data = daily_consumption(days=days, db=db)
+    totals = {}
+    for row in data:
+        key = row["flavor_name"]
+        if key not in totals:
+            totals[key] = {"flavor_name": key, "flavor_id": row["flavor_id"], "total": 0, "by_type": {}}
+        totals[key]["total"] += row["consumed"]
+        ptype = row["product_type"]
+        totals[key]["by_type"][ptype] = totals[key]["by_type"].get(ptype, 0) + row["consumed"]
+
+    ranked = sorted(totals.values(), key=lambda x: x["total"], reverse=True)
+    return ranked
+
+
+@router.get("/alerts")
+def low_stock_alerts(db: Session = Depends(get_db)):
+    """Generate alerts based on par levels (if set) with consumption-based fallback."""
+    inv = current_inventory(db=db)
+
+    # Build par level lookup
+    par_rows = db.query(ParLevel).all()
+    par_map = {}
+    for p in par_rows:
+        par_map[(p.flavor_id, p.product_type)] = p
+
+    # Check weekend
+    today = datetime.utcnow().weekday()
+    is_weekend = today in (4, 5, 6)
+
+    # Consumption-based fallback data
+    consumption = daily_consumption(days=7, db=db)
+    avg_consumption = {}
+    count_map = {}
+    for row in consumption:
+        key = (row["flavor_id"], row["product_type"])
+        avg_consumption[key] = avg_consumption.get(key, 0) + row["consumed"]
+        count_map[key] = count_map.get(key, 0) + 1
+    for key in avg_consumption:
+        if count_map[key] > 0:
+            avg_consumption[key] = round(avg_consumption[key] / count_map[key], 1)
+
+    alerts = []
+    for item in inv:
+        for ptype in ("tub", "pint", "quart"):
+            on_hand = item["products"][ptype]["on_hand"]
+            key = (item["flavor_id"], ptype)
+            par = par_map.get(key)
+
+            if par and par.target > 0:
+                # Par-level based alerts
+                target = par.weekend_target if (is_weekend and par.weekend_target) else par.target
+                avg = avg_consumption.get(key, 0)
+
+                if on_hand <= par.minimum:
+                    alerts.append({
+                        "flavor_name": item["name"],
+                        "flavor_id": item["flavor_id"],
+                        "product_type": ptype,
+                        "on_hand": on_hand,
+                        "target": target,
+                        "minimum": par.minimum,
+                        "avg_daily": avg,
+                        "urgency": "critical",
+                        "message": f"MAKE NOW - only {on_hand} left (minimum is {par.minimum})",
+                    })
+                elif on_hand < target:
+                    deficit = target - on_hand
+                    alerts.append({
+                        "flavor_name": item["name"],
+                        "flavor_id": item["flavor_id"],
+                        "product_type": ptype,
+                        "on_hand": on_hand,
+                        "target": target,
+                        "minimum": par.minimum,
+                        "avg_daily": avg,
+                        "urgency": "warning",
+                        "message": f"Below target - have {on_hand}, want {target} (need {deficit} more)",
+                    })
+                elif target > 0 and on_hand > target * 1.5:
+                    alerts.append({
+                        "flavor_name": item["name"],
+                        "flavor_id": item["flavor_id"],
+                        "product_type": ptype,
+                        "on_hand": on_hand,
+                        "target": target,
+                        "minimum": par.minimum,
+                        "avg_daily": avg,
+                        "urgency": "overstocked",
+                        "message": f"Overstocked - have {on_hand}, target is {target} (waste risk)",
+                    })
+            else:
+                # Fallback: consumption-based alerts (original logic)
+                avg = avg_consumption.get(key, 0)
+                if avg > 0:
+                    days_left = round(on_hand / avg, 1)
+                elif on_hand == 0:
+                    days_left = 0
+                else:
+                    continue
+
+                if days_left <= 1:
+                    urgency = "critical"
+                elif days_left <= 2:
+                    urgency = "warning"
+                elif days_left <= 3:
+                    urgency = "low"
+                else:
+                    continue
+
+                alerts.append({
+                    "flavor_name": item["name"],
+                    "flavor_id": item["flavor_id"],
+                    "product_type": ptype,
+                    "on_hand": on_hand,
+                    "avg_daily": avg,
+                    "days_left": days_left,
+                    "urgency": urgency,
+                    "message": f"{on_hand} left · avg {avg}/day · ~{days_left} days",
+                })
+
+    # Sort: critical first, then warning, then low/overstocked
+    urgency_order = {"critical": 0, "warning": 1, "low": 2, "overstocked": 3}
+    alerts.sort(key=lambda x: urgency_order.get(x["urgency"], 9))
+    return alerts
+
+
+@router.get("/production-vs-consumption")
+def production_vs_consumption(days: int = Query(7, ge=1, le=90), db: Session = Depends(get_db)):
+    """Compare total production to total consumption per flavor."""
+    since = datetime.utcnow() - timedelta(days=days)
+
+    # Total production per flavor
+    prod_rows = (
+        db.query(
+            Flavor.name,
+            Production.product_type,
+            func.sum(Production.quantity).label("total_produced"),
+        )
+        .join(Flavor, Production.flavor_id == Flavor.id)
+        .filter(Production.logged_at >= since)
+        .group_by(Flavor.name, Production.product_type)
+        .all()
+    )
+
+    production_map = {}
+    for name, ptype, total in prod_rows:
+        production_map[(name, ptype)] = total
+
+    # Total consumption
+    consumption = daily_consumption(days=days, db=db)
+    consumption_map = {}
+    for row in consumption:
+        key = (row["flavor_name"], row["product_type"])
+        consumption_map[key] = consumption_map.get(key, 0) + row["consumed"]
+
+    all_keys = set(production_map.keys()) | set(consumption_map.keys())
+    result = []
+    for name, ptype in sorted(all_keys):
+        produced = production_map.get((name, ptype), 0)
+        consumed = consumption_map.get((name, ptype), 0)
+        result.append(
+            {
+                "flavor_name": name,
+                "product_type": ptype,
+                "produced": produced,
+                "consumed": consumed,
+                "difference": produced - consumed,
+            }
+        )
+
+    return result

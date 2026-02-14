@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+  <meta name="color-scheme" content="dark light">
+  <title>The Scoop</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Averia+Serif+Libre:wght@400;700&family=Roboto+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+  <script>
+    // Apply theme immediately to prevent flash
+    (function() {
+      var t = localStorage.getItem('scoop-theme') || 'dark';
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
+</head>
+<body>
+  <header>
+    <div class="header-center">
+      <h1>The Scoop</h1>
+      <p class="subtitle">Professional Inventory Analytics</p>
+    </div>
+    <button id="theme-toggle" class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
+      <span class="icon-sun">&#9728;</span>
+      <span class="icon-moon">&#9790;</span>
+    </button>
+  </header>
+
+  <nav id="tab-bar">
+    <button class="tab active" data-tab="dashboard">Dashboard</button>
+    <button class="tab" data-tab="production">Production</button>
+    <button class="tab" data-tab="count">Count</button>
+    <button class="tab" data-tab="flavors">Flavors</button>
+    <button class="tab" data-tab="reports">Reports</button>
+  </nav>
+
+  <!-- ========== DASHBOARD ========== -->
+  <section id="dashboard" class="tab-content active">
+    <div id="make-list-section" class="card make-list-card">
+      <h2>Morning Make List</h2>
+      <p class="make-list-hint">What to make today. Based on last night's count + par levels.</p>
+      <div id="make-list-wrap">
+        <p class="muted">Loading...</p>
+      </div>
+    </div>
+
+    <div id="alerts-section" class="card">
+      <h2>Alerts</h2>
+      <div id="alerts-list" class="alerts-list">
+        <p class="muted">Loading...</p>
+      </div>
+    </div>
+
+    <div id="ai-section" class="card">
+      <h2>AI Insights</h2>
+      <button id="btn-insights" class="btn btn-primary" onclick="loadInsights()">Generate Insights</button>
+      <div id="insights-content" class="insights-content hidden"></div>
+    </div>
+
+    <div class="card">
+      <h2>Current Inventory</h2>
+      <div class="filter-row">
+        <select id="inv-category-filter" onchange="renderInventoryTable()">
+          <option value="all">All Categories</option>
+        </select>
+      </div>
+      <div id="inventory-table-wrap" class="table-wrap"></div>
+    </div>
+
+    <div class="card">
+      <h2>Flavor Popularity <span class="badge">7 days</span></h2>
+      <canvas id="popularity-chart"></canvas>
+    </div>
+
+    <div class="card">
+      <h2>Production vs Consumption</h2>
+      <canvas id="pvc-chart"></canvas>
+    </div>
+  </section>
+
+  <!-- ========== PRODUCTION LOG ========== -->
+  <section id="production" class="tab-content">
+    <div class="card">
+      <h2>Log Production</h2>
+      <form id="production-form" onsubmit="submitProduction(event)">
+        <label>Flavor</label>
+        <select id="prod-flavor" required></select>
+
+        <label>Product Type</label>
+        <div class="type-toggle" id="prod-type-toggle">
+          <button type="button" class="toggle-btn active" data-value="tub">Tub</button>
+          <button type="button" class="toggle-btn" data-value="pint">Pint</button>
+          <button type="button" class="toggle-btn" data-value="quart">Quart</button>
+        </div>
+        <input type="hidden" id="prod-type" value="tub">
+
+        <label>Quantity</label>
+        <div class="qty-input-row">
+          <button type="button" class="qty-btn" onclick="adjustQty('prod-qty', -1)">−</button>
+          <input type="number" id="prod-qty" min="1" value="1" required>
+          <button type="button" class="qty-btn" onclick="adjustQty('prod-qty', 1)">+</button>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-full">Log Production</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2>Recent Production</h2>
+      <div id="production-history"></div>
+    </div>
+  </section>
+
+  <!-- ========== DAILY COUNT ========== -->
+  <section id="count" class="tab-content">
+    <div class="card">
+      <h2>Nightly Count</h2>
+      <p class="muted">Tap to adjust. Smart defaults pre-filled from last count + production − avg consumption.</p>
+      <div class="filter-row">
+        <select id="count-category-filter" onchange="renderCountForm()">
+          <option value="all">All Categories</option>
+        </select>
+        <select id="count-type-filter" onchange="renderCountForm()">
+          <option value="all">All Types</option>
+          <option value="tub">Tubs</option>
+          <option value="pint">Pints</option>
+          <option value="quart">Quarts</option>
+        </select>
+      </div>
+      <div id="count-form-wrap"></div>
+      <button class="btn btn-primary btn-full" onclick="submitCounts()" id="btn-submit-counts">Submit All Counts</button>
+    </div>
+
+    <div class="card">
+      <h2>Count History</h2>
+      <div id="count-history"></div>
+    </div>
+  </section>
+
+  <!-- ========== FLAVORS ========== -->
+  <section id="flavors" class="tab-content">
+    <div class="card par-setup-card">
+      <h2>Stock Levels</h2>
+      <p class="par-hint">Set your ideal stock levels. The app does the math every morning.</p>
+      <div class="filter-row">
+        <select id="par-category-filter" onchange="renderParSetup()">
+          <option value="all">All Categories</option>
+        </select>
+        <select id="par-type-filter" onchange="renderParSetup()">
+          <option value="all">All Types</option>
+          <option value="tub">Tubs</option>
+          <option value="pint">Pints</option>
+          <option value="quart">Quarts</option>
+        </select>
+      </div>
+      <div id="par-setup-wrap"></div>
+      <button class="btn btn-primary btn-full" onclick="saveParLevels()" id="btn-save-pars">Save Stock Levels</button>
+    </div>
+
+    <div class="card">
+      <h2>Add Flavor</h2>
+      <form id="flavor-form" onsubmit="addFlavor(event)">
+        <label>Name</label>
+        <input type="text" id="flavor-name" required placeholder="e.g. Peanut Butter Crunch">
+        <label>Category</label>
+        <select id="flavor-category">
+          <option value="Classics">Classics</option>
+          <option value="Fruity">Fruity</option>
+          <option value="Chocolate">Chocolate</option>
+          <option value="Nutty">Nutty</option>
+          <option value="Cookie & Fun">Cookie & Fun</option>
+          <option value="Sweet & Fun">Sweet & Fun</option>
+          <option value="Specialty">Specialty</option>
+          <option value="Seasonal">Seasonal</option>
+        </select>
+        <button type="submit" class="btn btn-primary btn-full">Add Flavor</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2>Active Flavors</h2>
+      <div id="flavor-list"></div>
+    </div>
+  </section>
+
+  <!-- ========== REPORTS ========== -->
+  <section id="reports" class="tab-content">
+    <div class="report-range-toggle">
+      <button class="toggle-btn active" data-days="7">7 Days</button>
+      <button class="toggle-btn" data-days="14">14 Days</button>
+      <button class="toggle-btn" data-days="30">30 Days</button>
+    </div>
+
+    <div class="card">
+      <h2>Consumption Trends <button class="export-btn" onclick="toggleExportDropdown(event, 'trend')">Export &#9662;</button></h2>
+      <canvas id="trend-chart"></canvas>
+      <div id="trend-summary" class="table-wrap"></div>
+    </div>
+
+    <div class="card">
+      <h2>Waste & Overproduction <button class="export-btn" onclick="toggleExportDropdown(event, 'waste')">Export &#9662;</button></h2>
+      <canvas id="waste-chart"></canvas>
+      <div id="waste-table" class="table-wrap"></div>
+    </div>
+
+    <div class="card">
+      <h2>Category Performance <button class="export-btn" onclick="toggleExportDropdown(event, 'category')">Export &#9662;</button></h2>
+      <canvas id="category-chart"></canvas>
+      <div id="category-table" class="table-wrap"></div>
+    </div>
+
+    <div class="card">
+      <h2>Par Level Accuracy <button class="export-btn" onclick="toggleExportDropdown(event, 'par')">Export &#9662;</button></h2>
+      <div id="par-accuracy-table" class="table-wrap"></div>
+    </div>
+  </section>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

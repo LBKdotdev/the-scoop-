@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+
+# IDEs
+.vscode/
+.idea/
+
+# Temporary files
+*.log
+real_counts_transcription.csv
+pints_quarts_transcription.csv
+consumption_*.json
+counts_*.json
+trends_*.json
+prod_*.json
+
+# Keep the database for demo
+# inventory.db is intentionally tracked
