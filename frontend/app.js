@@ -951,12 +951,10 @@ function renderMakeList(data) {
     const isTub = ptype === 'tub';
     const have = isTub ? formatTubCount(p.on_hand) : p.on_hand;
     const need = Math.ceil(p.deficit);
-    const batches = Math.ceil(p.batches_needed || 0);
 
     if (need <= 0) return `<span class="ml-stocked-cell">${have}</span>`;
 
-    const batchLabel = batches > 0 ? `<span class="ml-batch-badge">${batches}×</span>` : '';
-    return `<span class="ml-need-cell">${have}<span class="ml-need-arrow">+${need}</span>${batchLabel}</span>`;
+    return `<span class="ml-need-cell">${have}<span class="ml-need-arrow">+${need}</span></span>`;
   }
 
   let html = `
