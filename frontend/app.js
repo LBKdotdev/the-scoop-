@@ -218,6 +218,15 @@ function formatTubCount(n) {
   return whole > 0 ? `${whole}${symbol}` : symbol;
 }
 
+function formatBatchCount(n) {
+  if (n == null || n === 0) return '0';
+  const whole = Math.floor(n);
+  const frac = Math.round((n - whole) * 10) / 10;
+  if (frac === 0) return String(whole);
+  if (frac === 0.5) return whole > 0 ? `${whole}\u00BD` : '\u00BD';
+  return n.toFixed(1);
+}
+
 // ===== FLAVORS =====
 async function loadFlavors() {
   try {
@@ -706,7 +715,7 @@ function renderKPIs(data) {
     return;
   }
 
-  // Helper to sum fractional batch needs, then ceil
+  // Helper to sum fractional batch needs, then round to nearest 0.5
   const getTotalBatches = (item) => {
     let totalNeed = 0;
     ['tub', 'pint', 'quart'].forEach(ptype => {
@@ -715,7 +724,7 @@ function renderKPIs(data) {
         totalNeed += p.batches_needed;
       }
     });
-    return Math.ceil(totalNeed);
+    return Math.round(totalNeed * 2) / 2;
   };
 
   const critical = data.filter(i => i.status === 'critical').length;
@@ -750,7 +759,7 @@ function renderStatusBar(data) {
     return;
   }
 
-  // Helper to sum fractional batch needs, then ceil
+  // Helper to sum fractional batch needs, then round to nearest 0.5
   const getTotalBatches = (item) => {
     let totalNeed = 0;
     ['tub', 'pint', 'quart'].forEach(ptype => {
@@ -759,7 +768,7 @@ function renderStatusBar(data) {
         totalNeed += p.batches_needed;
       }
     });
-    return Math.ceil(totalNeed);
+    return Math.round(totalNeed * 2) / 2;
   };
 
   const critical = data.filter(i => i.status === 'critical').length;
@@ -801,7 +810,7 @@ function renderTopPriorities(data) {
     return;
   }
 
-  // Helper to sum fractional batch needs, then ceil
+  // Helper to sum fractional batch needs, then round to nearest 0.5
   const getTotalBatches = (item) => {
     let totalNeed = 0;
     ['tub', 'pint', 'quart'].forEach(ptype => {
@@ -810,13 +819,14 @@ function renderTopPriorities(data) {
         totalNeed += p.batches_needed;
       }
     });
-    return Math.ceil(totalNeed);
+    return Math.round(totalNeed * 2) / 2;
   };
 
   let html = '<ul class="priority-list">';
   critical.forEach(item => {
     const totalBatches = getTotalBatches(item);
-    const batchText = totalBatches === 1 ? '1 batch' : `${totalBatches} batches`;
+    const formattedBatches = formatBatchCount(totalBatches);
+    const batchText = totalBatches === 1 ? '1 batch' : `${formattedBatches} batches`;
     html += `
       <li class="priority-item">
         <span class="priority-dot critical"></span>
@@ -835,7 +845,7 @@ function renderHomeInsights(data) {
   const wrap = document.getElementById('home-insights');
   const insights = [];
 
-  // Helper to sum fractional batch needs, then ceil
+  // Helper to sum fractional batch needs, then round to nearest 0.5
   const getTotalBatches = (item) => {
     let totalNeed = 0;
     ['tub', 'pint', 'quart'].forEach(ptype => {
@@ -844,7 +854,7 @@ function renderHomeInsights(data) {
         totalNeed += p.batches_needed;
       }
     });
-    return Math.ceil(totalNeed);
+    return Math.round(totalNeed * 2) / 2;
   };
 
   const critical = data.filter(i => i.status === 'critical').length;
@@ -917,8 +927,8 @@ function renderMakeList(data) {
 
   const isWeekend = data[0]?.is_weekend;
 
-  // Sum fractional batch needs, then ceil
-  // (One batch can be split between tubs, pints, and quarts)
+  // Sum fractional batch needs, then round to nearest 0.5
+  // (One batch can be split between tubs, pints, and quarts; half batches allowed)
   const calculateTotalBatches = (item) => {
     let totalNeed = 0;
     ['tub', 'pint', 'quart'].forEach(ptype => {
@@ -927,7 +937,7 @@ function renderMakeList(data) {
         totalNeed += p.batches_needed;
       }
     });
-    return Math.ceil(totalNeed);
+    return Math.round(totalNeed * 2) / 2;
   };
 
   const needsMaking = data.filter(d => calculateTotalBatches(d) > 0);
@@ -971,7 +981,7 @@ function renderMakeList(data) {
           <span class="ml-status-dot ${item.status}"></span>
           <span class="ml-flavor">${esc(item.flavor_name)}</span>
         </td>
-        <td class="ml-qty">${totalBatches}</td>
+        <td class="ml-qty">${formatBatchCount(totalBatches)}</td>
         <td>${productCell(item.products, 'tub')}</td>
         <td>${productCell(item.products, 'pint')}</td>
         <td>${productCell(item.products, 'quart')}</td>

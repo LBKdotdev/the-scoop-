@@ -125,14 +125,15 @@ def morning_make_list(db: Session = Depends(get_db)):
         if not products:
             continue
 
-        # Sum fractional batch needs across all product types, then ceil
-        # (One batch can be split between tubs, pints, and quarts)
+        # Sum fractional batch needs across all product types, then round to nearest 0.5
+        # (One batch can be split between tubs, pints, and quarts; half batches allowed)
         total_batch_need = 0.0
         for ptype in ["tub", "pint", "quart"]:
             p = products.get(ptype)
             if p and p["batches_needed"] > 0:
                 total_batch_need += p["batches_needed"]
-        total_batches = math.ceil(total_batch_need) if total_batch_need > 0 else 0
+        # Round to nearest 0.5 batch (production can make half batches)
+        total_batches = round(total_batch_need * 2) / 2 if total_batch_need > 0 else 0
 
         # Overall status: worst status across product types
         statuses = [p["status"] for p in products.values()]
