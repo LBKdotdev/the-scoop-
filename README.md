@@ -44,6 +44,16 @@ Set `ANTHROPIC_API_KEY` environment variable to enable Claude-powered:
 - **Database:** SQLite
 - **AI:** Claude API (Sonnet)
 
+## Deployment
+
+**Quick deploy to Render (free):** See [RENDER-SETUP.md](RENDER-SETUP.md) for 5-minute setup
+
+**Full deployment guide:** See [DEPLOYMENT.md](DEPLOYMENT.md) for:
+- Render deployment with zero cold starts (100% free)
+- UptimeRobot keep-alive setup
+- Optional Vercel frontend split for instant loads
+- Performance optimization tips
+
 ## API Endpoints
 
 | Method | Path | Description |

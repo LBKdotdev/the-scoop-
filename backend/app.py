@@ -11,7 +11,6 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from database import init_db, get_db
 from routes import flavors, production, counts, dashboard, reports
-from ai_insights import generate_insights
 
 app = FastAPI(title="Ice Cream Inventory Tracker")
 
@@ -36,8 +35,20 @@ def on_startup():
     init_db()
 
 
+@app.get("/health")
+def health_check():
+    """Health check endpoint for monitoring services like UptimeRobot"""
+    from datetime import datetime
+    return {
+        "status": "healthy",
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
+
 @app.get("/api/insights")
 def get_insights(db: Session = Depends(get_db)):
+    # Lazy load AI insights to speed up app startup
+    from ai_insights import generate_insights
     inv = dashboard.current_inventory(db=db)
     cons = dashboard.daily_consumption(days=7, db=db)
     alerts = dashboard.low_stock_alerts(db=db)
