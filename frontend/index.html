@@ -33,15 +33,46 @@
   </header>
 
   <nav id="tab-bar">
-    <button class="tab active" data-tab="dashboard">Dashboard</button>
+    <button class="tab active" data-tab="home">Home</button>
+    <button class="tab" data-tab="dashboard">Dashboard</button>
     <button class="tab" data-tab="production">Production</button>
     <button class="tab" data-tab="count">Count</button>
     <button class="tab" data-tab="flavors">Flavors</button>
     <button class="tab" data-tab="reports">Reports</button>
   </nav>
 
+  <!-- ========== HOME ========== -->
+  <section id="home" class="tab-content active">
+    <div class="card">
+      <div class="kpi-grid" id="kpi-grid">
+        <p class="muted">Loading...</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Stock Distribution</h2>
+      <div class="status-bar" id="status-bar">
+        <p class="muted">Loading...</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Top Priorities</h2>
+      <div id="top-priorities">
+        <p class="muted">Loading...</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Quick Insights</h2>
+      <ul class="home-insights" id="home-insights">
+        <li class="muted">Loading...</li>
+      </ul>
+    </div>
+  </section>
+
   <!-- ========== DASHBOARD ========== -->
-  <section id="dashboard" class="tab-content active">
+  <section id="dashboard" class="tab-content">
     <div id="make-list-section" class="card make-list-card">
       <h2>Morning Make List</h2>
       <p class="make-list-hint">What to make today. Based on last night's count + par levels.</p>
@@ -204,7 +235,7 @@
     </div>
 
     <div class="card">
-      <h2>Waste & Overproduction <button class="export-btn" onclick="toggleExportDropdown(event, 'waste')">Export &#9662;</button></h2>
+      <h2>Production Summary <button class="export-btn" onclick="toggleExportDropdown(event, 'waste')">Export &#9662;</button></h2>
       <canvas id="waste-chart"></canvas>
       <div id="waste-table" class="table-wrap"></div>
     </div>

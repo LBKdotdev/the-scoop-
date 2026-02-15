@@ -23,7 +23,7 @@ def generate_insights(inventory, consumption, alerts, production_vs_consumption)
             "summary": "Set ANTHROPIC_API_KEY to enable AI insights.",
             "predictions": [],
             "make_list": [],
-            "waste_flags": [],
+            "production_notes": [],
         }
 
     data_context = f"""Here is the current data for an ice cream shop:
@@ -48,14 +48,14 @@ Today is {_today()}.
 1. **Summary**: 2-3 sentence plain English overview of the shop's current state
 2. **Predictions**: Up to 5 demand predictions (e.g. "You'll likely need X pints of Y for the weekend")
 3. **Make List**: Specific production recommendations for tomorrow (what to make, how many, which product type)
-4. **Waste Flags**: Any flavors where production significantly exceeds consumption
+4. **Production Notes**: Notable patterns in production volume and sales trends (no negative framing)
 
 Respond in this exact JSON format:
 {
   "summary": "...",
   "predictions": ["prediction 1", "prediction 2", ...],
   "make_list": ["Make 4 tubs of Chocolate", "Pack 10 pints of Vanilla", ...],
-  "waste_flags": ["Pistachio quarts: made 5, only sold 1 this week", ...]
+  "production_notes": ["Chocolate tubs: high production volume with strong sales", ...]
 }
 
 Be specific with numbers. If data is limited, say so and give best estimates. Keep it practical and actionable for shop staff."""
@@ -74,13 +74,13 @@ Be specific with numbers. If data is limited, say so and give best estimates. Ke
         end = text.rfind("}") + 1
         if start >= 0 and end > start:
             return json.loads(text[start:end])
-        return {"summary": text, "predictions": [], "make_list": [], "waste_flags": []}
+        return {"summary": text, "predictions": [], "make_list": [], "production_notes": []}
     except Exception as e:
         return {
             "summary": f"AI insights temporarily unavailable: {str(e)}",
             "predictions": [],
             "make_list": [],
-            "waste_flags": [],
+            "production_notes": [],
         }
 
 

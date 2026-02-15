@@ -24,7 +24,7 @@ function init() {
   initTabs();
   initTypeToggles();
   loadFlavors().then(() => {
-    loadDashboard();
+    loadHome();
     loadProductionHistory();
   });
   // Close export dropdowns on outside click
@@ -68,6 +68,7 @@ function getChartColors() {
     green: isDark ? '#34D399' : '#22C55E',
     orange: isDark ? '#FBBF24' : '#F59E0B',
     cyan: isDark ? '#38BDF8' : '#00D4FF',
+    blue: isDark ? '#60A5FA' : '#3B82F6',
     black: isDark ? '#E8E8ED' : '#1A1A1A',
     muted: isDark ? '#5A5A6E' : '#D0D0D0',
     doughnutBorder: isDark ? '#1A1A24' : '#FFFFFF',
@@ -85,7 +86,9 @@ function getChartColors() {
 
 function reRenderActiveCharts() {
   const activeTab = document.querySelector('.tab-content.active')?.id;
-  if (activeTab === 'dashboard') {
+  if (activeTab === 'home') {
+    loadHome();
+  } else if (activeTab === 'dashboard') {
     loadDashboard();
   } else if (activeTab === 'reports') {
     loadReports();
@@ -105,6 +108,7 @@ function initTabs() {
         targetElement.classList.add('active');
       }
 
+      if (target === 'home') loadHome();
       if (target === 'dashboard') loadDashboard();
       if (target === 'count') loadSmartDefaults();
       if (target === 'production') loadProductionHistory();
@@ -682,6 +686,206 @@ async function loadCountHistory() {
   }
 }
 
+// ===== HOME =====
+async function loadHome() {
+  try {
+    const makeList = await api('/api/dashboard/make-list');
+    renderKPIs(makeList);
+    renderStatusBar(makeList);
+    renderTopPriorities(makeList);
+    renderHomeInsights(makeList);
+  } catch (e) {
+    console.error('Home load failed:', e);
+  }
+}
+
+function renderKPIs(data) {
+  const wrap = document.getElementById('kpi-grid');
+  if (!data.length) {
+    wrap.innerHTML = '<p class="muted">No data available yet.</p>';
+    return;
+  }
+
+  // Helper to sum fractional batch needs, then ceil
+  const getTotalBatches = (item) => {
+    let totalNeed = 0;
+    ['tub', 'pint', 'quart'].forEach(ptype => {
+      const p = item.products[ptype];
+      if (p && p.batches_needed > 0) {
+        totalNeed += p.batches_needed;
+      }
+    });
+    return Math.ceil(totalNeed);
+  };
+
+  const critical = data.filter(i => i.status === 'critical').length;
+  const belowPar = data.filter(i => i.status === 'below_par' && getTotalBatches(i) > 0).length;
+  const batches = data.reduce((sum, i) => sum + getTotalBatches(i), 0);
+  const stocked = data.filter(i => getTotalBatches(i) === 0).length;
+
+  wrap.innerHTML = `
+    <div class="kpi-card critical clickable" onclick="switchToTab('dashboard')" title="View critical items on Dashboard">
+      <div class="kpi-number">${critical}</div>
+      <div class="kpi-label">Critical Items</div>
+    </div>
+    <div class="kpi-card warning clickable" onclick="switchToTab('dashboard')" title="View below par items on Dashboard">
+      <div class="kpi-number">${belowPar}</div>
+      <div class="kpi-label">Below Par</div>
+    </div>
+    <div class="kpi-card neutral clickable" onclick="switchToTab('dashboard')" title="View full make list on Dashboard">
+      <div class="kpi-number">${batches}</div>
+      <div class="kpi-label">Batches Needed</div>
+    </div>
+    <div class="kpi-card success clickable" onclick="switchToTab('flavors')" title="View stock levels on Flavors tab">
+      <div class="kpi-number">${stocked}</div>
+      <div class="kpi-label">Fully Stocked</div>
+    </div>
+  `;
+}
+
+function renderStatusBar(data) {
+  const wrap = document.getElementById('status-bar');
+  if (!data.length) {
+    wrap.innerHTML = '<p class="muted">No data available.</p>';
+    return;
+  }
+
+  // Helper to sum fractional batch needs, then ceil
+  const getTotalBatches = (item) => {
+    let totalNeed = 0;
+    ['tub', 'pint', 'quart'].forEach(ptype => {
+      const p = item.products[ptype];
+      if (p && p.batches_needed > 0) {
+        totalNeed += p.batches_needed;
+      }
+    });
+    return Math.ceil(totalNeed);
+  };
+
+  const critical = data.filter(i => i.status === 'critical').length;
+  const belowPar = data.filter(i => i.status === 'below_par' && getTotalBatches(i) > 0).length;
+  const stocked = data.filter(i => getTotalBatches(i) === 0).length;
+  const total = data.length;
+
+  const critPct = (critical / total) * 100;
+  const belowPct = (belowPar / total) * 100;
+  const stockedPct = (stocked / total) * 100;
+  const neutralPct = 100 - critPct - belowPct - stockedPct;
+
+  let html = '';
+  if (critPct > 0) {
+    html += `<div class="status-segment critical" style="width: ${critPct}%" onclick="switchToTab('dashboard')" title="View critical items">${critical} Critical</div>`;
+  }
+  if (belowPct > 0) {
+    html += `<div class="status-segment warning" style="width: ${belowPct}%" onclick="switchToTab('dashboard')" title="View below par items">${belowPar} Below</div>`;
+  }
+  if (stockedPct > 0) {
+    html += `<div class="status-segment success" style="width: ${stockedPct}%" onclick="switchToTab('flavors')" title="View stock levels">${stocked} Stocked</div>`;
+  }
+  if (neutralPct > 0) {
+    const neutralCount = total - critical - belowPar - stocked;
+    if (neutralCount > 0) {
+      html += `<div class="status-segment neutral" style="width: ${neutralPct}%" onclick="switchToTab('dashboard')" title="View make list">${neutralCount} Other</div>`;
+    }
+  }
+
+  wrap.innerHTML = html || '<p class="muted">No items to display.</p>';
+}
+
+function renderTopPriorities(data) {
+  const wrap = document.getElementById('top-priorities');
+  const critical = data.filter(i => i.status === 'critical').slice(0, 5);
+
+  if (!critical.length) {
+    wrap.innerHTML = '<p class="muted">No critical items. Everything looks good!</p>';
+    return;
+  }
+
+  // Helper to sum fractional batch needs, then ceil
+  const getTotalBatches = (item) => {
+    let totalNeed = 0;
+    ['tub', 'pint', 'quart'].forEach(ptype => {
+      const p = item.products[ptype];
+      if (p && p.batches_needed > 0) {
+        totalNeed += p.batches_needed;
+      }
+    });
+    return Math.ceil(totalNeed);
+  };
+
+  let html = '<ul class="priority-list">';
+  critical.forEach(item => {
+    const totalBatches = getTotalBatches(item);
+    const batchText = totalBatches === 1 ? '1 batch' : `${totalBatches} batches`;
+    html += `
+      <li class="priority-item">
+        <span class="priority-dot critical"></span>
+        <span class="priority-text">${esc(item.flavor_name)}</span>
+        <span class="priority-badge">${batchText}</span>
+      </li>
+    `;
+  });
+  html += '</ul>';
+  html += '<a href="#" class="home-link" onclick="switchToTab(\'dashboard\'); return false;">View Full Make List →</a>';
+
+  wrap.innerHTML = html;
+}
+
+function renderHomeInsights(data) {
+  const wrap = document.getElementById('home-insights');
+  const insights = [];
+
+  // Helper to sum fractional batch needs, then ceil
+  const getTotalBatches = (item) => {
+    let totalNeed = 0;
+    ['tub', 'pint', 'quart'].forEach(ptype => {
+      const p = item.products[ptype];
+      if (p && p.batches_needed > 0) {
+        totalNeed += p.batches_needed;
+      }
+    });
+    return Math.ceil(totalNeed);
+  };
+
+  const critical = data.filter(i => i.status === 'critical').length;
+  const batches = data.reduce((sum, i) => sum + getTotalBatches(i), 0);
+  const stocked = data.filter(i => getTotalBatches(i) === 0).length;
+  const isWeekend = data[0]?.is_weekend;
+
+  if (critical > 0) {
+    insights.push(`${critical} flavor${critical > 1 ? 's' : ''} critically low - prioritize these first`);
+  }
+  if (batches > 0) {
+    insights.push(`Total production needed: ${batches} batch${batches > 1 ? 'es' : ''}`);
+  }
+  if (stocked > 0) {
+    insights.push(`${stocked} flavor${stocked > 1 ? 's are' : ' is'} fully stocked and ready`);
+  }
+  if (isWeekend) {
+    insights.push('Weekend demand adjustment applied to make list');
+  }
+  if (insights.length === 0) {
+    insights.push('All stock levels look good. Check back tonight after count.');
+  }
+
+  wrap.innerHTML = insights.map(i => `<li class="home-insight-item">${esc(i)}</li>`).join('');
+}
+
+function switchToTab(tabName) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+
+  const tabButton = document.querySelector(`.tab[data-tab="${tabName}"]`);
+  const tabContent = document.getElementById(tabName);
+
+  if (tabButton) tabButton.classList.add('active');
+  if (tabContent) tabContent.classList.add('active');
+
+  // Load tab content
+  if (tabName === 'dashboard') loadDashboard();
+  if (tabName === 'flavors') loadParLevels();
+}
+
 // ===== DASHBOARD =====
 async function loadDashboard() {
   try {
@@ -712,10 +916,24 @@ function renderMakeList(data) {
   }
 
   const isWeekend = data[0]?.is_weekend;
-  const needsMaking = data.filter(d => d.total_batches > 0);
-  const stocked = data.filter(d => d.total_batches === 0);
+
+  // Sum fractional batch needs, then ceil
+  // (One batch can be split between tubs, pints, and quarts)
+  const calculateTotalBatches = (item) => {
+    let totalNeed = 0;
+    ['tub', 'pint', 'quart'].forEach(ptype => {
+      const p = item.products[ptype];
+      if (p && p.batches_needed > 0) {
+        totalNeed += p.batches_needed;
+      }
+    });
+    return Math.ceil(totalNeed);
+  };
+
+  const needsMaking = data.filter(d => calculateTotalBatches(d) > 0);
+  const stocked = data.filter(d => calculateTotalBatches(d) === 0);
   const critCount = data.filter(d => d.status === 'critical').length;
-  const totalBatches = needsMaking.reduce((sum, d) => sum + d.total_batches, 0);
+  const totalBatches = needsMaking.reduce((sum, d) => sum + calculateTotalBatches(d), 0);
 
   function productCell(products, ptype) {
     const p = products[ptype];
@@ -723,8 +941,12 @@ function renderMakeList(data) {
     const isTub = ptype === 'tub';
     const have = isTub ? formatTubCount(p.on_hand) : p.on_hand;
     const need = Math.ceil(p.deficit);
+    const batches = Math.ceil(p.batches_needed || 0);
+
     if (need <= 0) return `<span class="ml-stocked-cell">${have}</span>`;
-    return `<span class="ml-need-cell">${have}<span class="ml-need-arrow">+${need}</span></span>`;
+
+    const batchLabel = batches > 0 ? `<span class="ml-batch-badge">${batches}×</span>` : '';
+    return `<span class="ml-need-cell">${have}<span class="ml-need-arrow">+${need}</span>${batchLabel}</span>`;
   }
 
   let html = `
@@ -732,26 +954,27 @@ function renderMakeList(data) {
     <table class="make-list-table">
       <thead>
         <tr>
-          <th>Flavor</th>
+          <th>Flavor${isWeekend ? '<span class="make-list-weekend-badge">Weekend</span>' : ''}</th>
+          <th style="text-align:right">Batches</th>
           <th>Tubs</th>
           <th>Pints</th>
           <th>Quarts</th>
-          <th style="text-align:right">Batches${isWeekend ? '<span class="make-list-weekend-badge">Weekend</span>' : ''}</th>
         </tr>
       </thead>
       <tbody>`;
 
   needsMaking.forEach(item => {
+    const totalBatches = calculateTotalBatches(item);
     html += `
       <tr class="ml-${item.status}">
         <td>
           <span class="ml-status-dot ${item.status}"></span>
           <span class="ml-flavor">${esc(item.flavor_name)}</span>
         </td>
+        <td class="ml-qty">${totalBatches}</td>
         <td>${productCell(item.products, 'tub')}</td>
         <td>${productCell(item.products, 'pint')}</td>
         <td>${productCell(item.products, 'quart')}</td>
-        <td class="ml-qty">${item.total_batches}</td>
       </tr>`;
   });
 
@@ -764,10 +987,10 @@ function renderMakeList(data) {
             <span class="ml-status-dot stocked"></span>
             <span class="ml-flavor">${esc(item.flavor_name)}</span>
           </td>
+          <td class="ml-qty">0</td>
           <td>${productCell(item.products, 'tub')}</td>
           <td>${productCell(item.products, 'pint')}</td>
           <td>${productCell(item.products, 'quart')}</td>
-          <td class="ml-qty">&#8212;</td>
         </tr>`;
     });
   }
@@ -981,10 +1204,10 @@ async function loadInsights() {
       html += `</ul></div>`;
     }
 
-    if (data.waste_flags?.length) {
-      html += `<div class="insight-block"><h3>Waste Alerts</h3><ul>`;
-      data.waste_flags.forEach(w => {
-        html += `<li class="waste">${esc(w)}</li>`;
+    if (data.production_notes?.length) {
+      html += `<div class="insight-block"><h3>Production Notes</h3><ul>`;
+      data.production_notes.forEach(w => {
+        html += `<li>${esc(w)}</li>`;
       });
       html += `</ul></div>`;
     }
@@ -1204,7 +1427,7 @@ function renderWasteChart(data) {
   const ctx = document.getElementById('waste-chart');
   if (wasteChart) wasteChart.destroy();
 
-  const filtered = data.filter(d => d.surplus > 0).slice(0, 10);
+  const filtered = data.slice(0, 10);
   if (!filtered.length) {
     wasteChart = null;
     ctx.style.display = 'none';
@@ -1213,18 +1436,15 @@ function renderWasteChart(data) {
   ctx.style.display = '';
 
   const colors = getChartColors();
-  const barColors = filtered.map(d =>
-    d.surplus_pct > 30 ? colors.red : d.surplus_pct > 20 ? colors.orange : colors.green
-  );
 
   wasteChart = new Chart(ctx, {
     type: 'bar',
     data: {
       labels: filtered.map(d => d.flavor_name),
       datasets: [{
-        label: 'Surplus',
-        data: filtered.map(d => d.surplus),
-        backgroundColor: barColors,
+        label: 'Produced',
+        data: filtered.map(d => d.produced),
+        backgroundColor: colors.blue,
         borderRadius: 4,
       }],
     },
@@ -1251,21 +1471,17 @@ function renderWasteTable(data) {
   }
 
   const rows = data.map(d => {
-    let rowClass = '';
-    if (d.surplus_pct > 30) rowClass = 'report-surplus-danger';
-    else if (d.surplus_pct > 20) rowClass = 'report-surplus-warn';
-    return `<tr class="${rowClass}">
+    return `<tr>
       <td>${esc(d.flavor_name)}</td>
       <td>${d.produced}</td>
       <td>${d.consumed}</td>
       <td>${d.surplus}</td>
-      <td>${d.surplus_pct}%</td>
     </tr>`;
   });
 
   wrap.innerHTML = `
     <table class="report-table">
-      <thead><tr><th>Flavor</th><th>Produced</th><th>Consumed</th><th>Surplus</th><th>Surplus %</th></tr></thead>
+      <thead><tr><th>Flavor</th><th>Produced</th><th>Consumed</th><th>Surplus</th></tr></thead>
       <tbody>${rows.join('')}</tbody>
     </table>`;
 }
@@ -1464,9 +1680,9 @@ function getReportData(reportName) {
     case 'waste': {
       const data = reportCache.waste;
       return {
-        title: `Waste & Overproduction (${reportDays} Days)`,
-        headers: ['Flavor', 'Produced', 'Consumed', 'Surplus', 'Surplus %'],
-        rows: data.map(d => [d.flavor_name, d.produced, d.consumed, d.surplus, d.surplus_pct + '%']),
+        title: `Production Summary (${reportDays} Days)`,
+        headers: ['Flavor', 'Produced', 'Consumed', 'Surplus'],
+        rows: data.map(d => [d.flavor_name, d.produced, d.consumed, d.surplus]),
         chartCanvas: document.getElementById('waste-chart'),
       };
     }

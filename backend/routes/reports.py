@@ -11,7 +11,7 @@ router = APIRouter(prefix="/api/reports", tags=["reports"])
 
 @router.get("/waste")
 def waste_report(days: int = Query(7, ge=1, le=90), db: Session = Depends(get_db)):
-    """Per-flavor production vs consumption surplus analysis."""
+    """Production summary: per-flavor production volumes and consumption patterns."""
     since = datetime.utcnow() - timedelta(days=days)
 
     # Total production per flavor (aggregated across product types)
@@ -47,8 +47,8 @@ def waste_report(days: int = Query(7, ge=1, le=90), db: Session = Depends(get_db
             "surplus_pct": surplus_pct,
         })
 
-    # Sort by surplus descending
-    result.sort(key=lambda x: x["surplus"], reverse=True)
+    # Sort by production volume descending
+    result.sort(key=lambda x: x["produced"], reverse=True)
     return result
 
 
