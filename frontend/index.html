@@ -120,6 +120,9 @@
     <div class="card">
       <h2>Log Production</h2>
       <form id="production-form" onsubmit="submitProduction(event)">
+        <label>Your Name/Initials</label>
+        <input type="text" id="prod-employee-name" placeholder="e.g., Audrey AH or Napoleon ND" maxlength="50" required>
+
         <label>Flavor</label>
         <select id="prod-flavor" required></select>
 
@@ -153,6 +156,19 @@
     <div class="card">
       <h2>Nightly Count</h2>
       <p class="muted">Tap to adjust. Smart defaults pre-filled from last count + production − avg consumption.</p>
+
+      <div class="employee-input-wrap">
+        <label for="employee-name">Your Name/Initials</label>
+        <input type="text" id="employee-name" placeholder="e.g., Audrey AH or Napoleon ND" maxlength="50">
+      </div>
+
+      <div class="voice-input-section">
+        <button type="button" class="btn btn-secondary" id="voice-input-btn" onclick="toggleVoiceInput()">
+          <span class="voice-icon">🎤</span> Voice Input
+        </button>
+        <div id="voice-feedback" class="voice-feedback hidden"></div>
+      </div>
+
       <div class="filter-row">
         <select id="count-category-filter" onchange="renderCountForm()">
           <option value="all">All Categories</option>
@@ -229,6 +245,13 @@
     </div>
 
     <div class="card">
+      <h2>Variance Tracking <button class="export-btn" onclick="toggleExportDropdown(event, 'variance')">Export &#9662;</button></h2>
+      <div id="variance-summary"></div>
+      <canvas id="variance-chart"></canvas>
+      <div id="variance-items" class="table-wrap"></div>
+    </div>
+
+    <div class="card">
       <h2>Consumption Trends <button class="export-btn" onclick="toggleExportDropdown(event, 'trend')">Export &#9662;</button></h2>
       <canvas id="trend-chart"></canvas>
       <div id="trend-summary" class="table-wrap"></div>
@@ -249,6 +272,11 @@
     <div class="card">
       <h2>Par Level Accuracy <button class="export-btn" onclick="toggleExportDropdown(event, 'par')">Export &#9662;</button></h2>
       <div id="par-accuracy-table" class="table-wrap"></div>
+    </div>
+
+    <div class="card">
+      <h2>Employee Performance <button class="export-btn" onclick="toggleExportDropdown(event, 'employee')">Export &#9662;</button></h2>
+      <div id="employee-performance-wrap"></div>
     </div>
   </section>
 

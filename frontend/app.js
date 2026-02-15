@@ -6,9 +6,12 @@ let flavors = [];
 let inventory = [];
 let smartDefaults = [];
 let countEdits = {};  // keyed by "flavorId-productType"
+let countPredictions = {};  // keyed by "flavorId-productType" - stores predicted values
 let parLevels = [];   // par level data from API
 let parEdits = {};    // keyed by "flavorId-productType"
 let reportDays = 7;   // current report range
+let voiceRecognition = null;
+let isVoiceActive = false;
 
 // Cache report data for exports
 let reportCache = {
@@ -16,6 +19,8 @@ let reportCache = {
   popularity: [],
   waste: [],
   parAccuracy: [],
+  variance: null,
+  employeePerformance: null,
 };
 
 // ===== INIT =====
@@ -111,7 +116,7 @@ function initTabs() {
       if (target === 'home') loadHome();
       if (target === 'dashboard') loadDashboard();
       if (target === 'count') loadSmartDefaults();
-      if (target === 'production') loadProductionHistory();
+      if (target === 'production') { loadProductionHistory(); restoreEmployeeName('prod-employee-name'); }
       if (target === 'flavors') loadParLevels();
       if (target === 'reports') { initReportRangeToggle(); loadReports(); }
     });
@@ -161,6 +166,265 @@ function adjustQty(inputId, delta) {
   input.value = Math.max(0, val + delta);
 }
 
+function restoreEmployeeName(inputId) {
+  const savedName = localStorage.getItem('employee-name');
+  const input = document.getElementById(inputId);
+  if (savedName && input) {
+    input.value = savedName;
+  }
+}
+
+// ===== VOICE INPUT =====
+function initVoiceRecognition() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  if (!SpeechRecognition) {
+    console.warn('Speech recognition not supported in this browser');
+    return null;
+  }
+
+  const recognition = new SpeechRecognition();
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.lang = 'en-US';
+
+  recognition.onresult = (event) => {
+    const last = event.results.length - 1;
+    const transcript = event.results[last][0].transcript.toLowerCase().trim();
+    const isFinal = event.results[last].isFinal;
+
+    showVoiceFeedback(transcript, isFinal);
+
+    if (isFinal) {
+      parseVoiceCommand(transcript);
+    }
+  };
+
+  recognition.onerror = (event) => {
+    console.error('Speech recognition error:', event.error);
+    if (event.error === 'no-speech') {
+      showVoiceFeedback('No speech detected. Try again.', true, 'error');
+    } else if (event.error === 'not-allowed') {
+      showVoiceFeedback('Microphone access denied. Please allow microphone in browser settings.', true, 'error');
+      stopVoiceInput();
+    } else {
+      showVoiceFeedback(`Error: ${event.error}`, true, 'error');
+    }
+  };
+
+  recognition.onend = () => {
+    if (isVoiceActive) {
+      recognition.start(); // Restart if still active
+    }
+  };
+
+  return recognition;
+}
+
+function toggleVoiceInput() {
+  if (!voiceRecognition) {
+    voiceRecognition = initVoiceRecognition();
+    if (!voiceRecognition) {
+      toast('Voice input not supported in this browser. Try Chrome or Edge.', 'error');
+      return;
+    }
+  }
+
+  const btn = document.getElementById('voice-input-btn');
+
+  if (isVoiceActive) {
+    stopVoiceInput();
+  } else {
+    startVoiceInput();
+  }
+}
+
+function startVoiceInput() {
+  isVoiceActive = true;
+  const btn = document.getElementById('voice-input-btn');
+  btn.classList.add('voice-active');
+  btn.innerHTML = '<span class="voice-icon">🔴</span> Listening...';
+
+  showVoiceFeedback('Listening... Say: "Flavor name, type, number"', false);
+
+  try {
+    voiceRecognition.start();
+  } catch (e) {
+    console.error('Failed to start voice recognition:', e);
+  }
+}
+
+function stopVoiceInput() {
+  isVoiceActive = false;
+  const btn = document.getElementById('voice-input-btn');
+  btn.classList.remove('voice-active');
+  btn.innerHTML = '<span class="voice-icon">🎤</span> Voice Input';
+
+  if (voiceRecognition) {
+    voiceRecognition.stop();
+  }
+
+  setTimeout(() => {
+    const feedback = document.getElementById('voice-feedback');
+    feedback.classList.add('hidden');
+  }, 2000);
+}
+
+function showVoiceFeedback(text, isFinal, type = 'info') {
+  const feedback = document.getElementById('voice-feedback');
+  feedback.classList.remove('hidden');
+  feedback.className = `voice-feedback ${type}`;
+
+  if (isFinal) {
+    feedback.innerHTML = `<strong>Heard:</strong> "${esc(text)}"`;
+  } else {
+    feedback.innerHTML = `<span class="voice-interim">${esc(text)}...</span>`;
+  }
+}
+
+function parseVoiceCommand(transcript) {
+  // Remove common filler words
+  let cleaned = transcript
+    .replace(/\b(um|uh|like|you know)\b/g, '')
+    .trim();
+
+  // Try to extract: flavor, type (tub/pint/quart), number
+  const words = cleaned.split(/\s+/);
+
+  // Convert spoken numbers to digits (including common misheard words)
+  const numberWords = {
+    'zero': 0, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+    'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10,
+    'eleven': 11, 'twelve': 12, 'thirteen': 13, 'fourteen': 14, 'fifteen': 15,
+    'sixteen': 16, 'seventeen': 17, 'eighteen': 18, 'nineteen': 19, 'twenty': 20,
+    'half': 0.5, 'quarter': 0.25, 'third': 0.33, 'fourth': 0.25,
+    // Common misheard words
+    'nice': 9, 'to': 2, 'too': 2, 'for': 4, 'fore': 4, 'ate': 8, 'won': 1,
+    'tree': 3, 'free': 3, 'sex': 6, 'tin': 10, 'tube': 2, 'tooth': 2
+  };
+
+  // Find number (can be digit or word or fraction like "nine and a half")
+  let quantity = null;
+  let quantityIndices = [];
+
+  // Check for patterns like "nine and a half" or "seven and a quarter"
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i].toLowerCase();
+
+    // Check for "X and a half/quarter" pattern
+    if (numberWords[word] !== undefined && i + 3 < words.length) {
+      if (words[i + 1] === 'and' && words[i + 2] === 'a' &&
+          (words[i + 3] === 'half' || words[i + 3] === 'quarter')) {
+        quantity = numberWords[word] + (words[i + 3] === 'half' ? 0.5 : 0.25);
+        quantityIndices = [i, i + 1, i + 2, i + 3];
+        break;
+      }
+    }
+
+    // Check for standalone number word
+    if (numberWords[word] !== undefined && numberWords[word] >= 1) {
+      quantity = numberWords[word];
+      quantityIndices = [i];
+      break;
+    }
+
+    // Check for digit
+    const num = parseFloat(word);
+    if (!isNaN(num) && num > 0) {
+      quantity = num;
+      quantityIndices = [i];
+      break;
+    }
+  }
+
+  // Find product type
+  let productType = null;
+  const typeIndex = words.findIndex(w => ['tub', 'tubs', 'pint', 'pints', 'quart', 'quarts'].includes(w));
+
+  if (typeIndex >= 0) {
+    const typeWord = words[typeIndex];
+    if (typeWord.startsWith('tub')) productType = 'tub';
+    else if (typeWord.startsWith('pint')) productType = 'pint';
+    else if (typeWord.startsWith('quart')) productType = 'quart';
+  }
+
+  // Remaining words are the flavor name (exclude type and quantity words)
+  const excludeIndices = new Set([typeIndex, ...quantityIndices]);
+  const flavorWords = [];
+  for (let i = 0; i < words.length; i++) {
+    if (excludeIndices.has(i)) continue;
+    flavorWords.push(words[i]);
+  }
+
+  const flavorName = flavorWords.join(' ');
+
+  // Find matching flavor
+  const matchedFlavor = findFlavorByName(flavorName);
+
+  if (!matchedFlavor) {
+    showVoiceFeedback(`❌ Flavor "${flavorName}" not found. Try again.`, true, 'error');
+    return;
+  }
+
+  if (!productType) {
+    showVoiceFeedback(`❌ Product type not detected. Say "tub", "pint", or "quart".`, true, 'error');
+    return;
+  }
+
+  if (!quantity) {
+    showVoiceFeedback(`❌ Quantity not detected. Say a number.`, true, 'error');
+    return;
+  }
+
+  // Apply the count
+  const key = `${matchedFlavor.id}-${productType}`;
+  const input = document.getElementById(`count-${key}`);
+
+  if (!input) {
+    showVoiceFeedback(`❌ ${matchedFlavor.name} ${productType} not in current view. Check filters.`, true, 'error');
+    return;
+  }
+
+  // Update the count
+  input.value = quantity;
+  countEdits[key] = quantity;
+  updatePartialToggle(key);
+  updateVarianceIndicator(key);
+
+  // Success feedback
+  showVoiceFeedback(`✅ ${matchedFlavor.name} ${productType}: ${quantity}`, true, 'success');
+
+  // Scroll to the updated field
+  input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  input.classList.add('voice-updated');
+  setTimeout(() => input.classList.remove('voice-updated'), 1500);
+}
+
+function findFlavorByName(spokenName) {
+  const normalized = spokenName.toLowerCase().trim();
+
+  // Try exact match first
+  let match = flavors.find(f => f.name.toLowerCase() === normalized);
+  if (match) return match;
+
+  // Try partial match (contains)
+  match = flavors.find(f => f.name.toLowerCase().includes(normalized));
+  if (match) return match;
+
+  // Try reverse (spoken contains flavor name)
+  match = flavors.find(f => normalized.includes(f.name.toLowerCase()));
+  if (match) return match;
+
+  // Try fuzzy match (all words present)
+  const spokenWords = normalized.split(/\s+/);
+  match = flavors.find(f => {
+    const flavorWords = f.name.toLowerCase().split(/\s+/);
+    return flavorWords.every(fw => spokenWords.some(sw => sw.includes(fw) || fw.includes(sw)));
+  });
+
+  return match;
+}
+
 function adjustCountQty(key, delta) {
   const input = document.getElementById(`count-${key}`);
   const current = parseFloat(input.value) || 0;
@@ -179,6 +443,7 @@ function adjustCountQty(key, delta) {
     countEdits[key] = newVal;
   }
   updatePartialToggle(key);
+  updateVarianceIndicator(key);
 }
 
 function setPartial(key, fraction) {
@@ -195,6 +460,7 @@ function setPartial(key, fraction) {
       btn.classList.toggle('active', parseFloat(btn.dataset.frac) === fraction);
     });
   }
+  updateVarianceIndicator(key);
 }
 
 function updatePartialToggle(key) {
@@ -205,6 +471,61 @@ function updatePartialToggle(key) {
   toggleWrap.querySelectorAll('.partial-btn').forEach(btn => {
     btn.classList.toggle('active', parseFloat(btn.dataset.frac) === frac);
   });
+}
+
+function calculateVariance(predicted, actual) {
+  if (predicted == null || predicted === 0) {
+    return { variance: 0, variancePct: 0, colorClass: 'variance-ok', icon: '✅', message: '' };
+  }
+
+  const variance = actual - predicted;
+  const variancePct = Math.abs((variance / predicted) * 100);
+
+  let colorClass, icon, message;
+  if (variancePct <= 10) {
+    colorClass = 'variance-ok';
+    icon = '✅';
+    message = '';
+  } else if (variancePct <= 25) {
+    colorClass = 'variance-warn';
+    icon = '⚠️';
+    message = 'Verify count';
+  } else {
+    colorClass = 'variance-high';
+    icon = '🔴';
+    message = 'Large difference - recount recommended';
+  }
+
+  return {
+    variance: variance.toFixed(1),
+    variancePct: variancePct.toFixed(0),
+    colorClass,
+    icon,
+    message
+  };
+}
+
+function updateVarianceIndicator(key) {
+  const predicted = countPredictions[key] || 0;
+  const actual = parseFloat(countEdits[key]) || 0;
+  const indicator = document.getElementById(`variance-${key}`);
+
+  if (!indicator) return;
+
+  const { variance, variancePct, colorClass, icon, message } = calculateVariance(predicted, actual);
+
+  let html = '';
+  if (predicted > 0) {
+    const sign = parseFloat(variance) >= 0 ? '+' : '';
+    html = `
+      <span class="variance-indicator ${colorClass}">
+        ${icon} ${sign}${variance} (${variancePct}%)
+        ${message ? `<span class="variance-message">${message}</span>` : ''}
+      </span>
+    `;
+  }
+
+  indicator.innerHTML = html;
 }
 
 function formatTubCount(n) {
@@ -492,17 +813,29 @@ async function saveParLevels() {
 // ===== PRODUCTION =====
 async function submitProduction(e) {
   e.preventDefault();
+  const employee_name = document.getElementById('prod-employee-name').value.trim();
   const flavor_id = parseInt(document.getElementById('prod-flavor').value);
   const product_type = document.getElementById('prod-type').value;
   const quantity = parseInt(document.getElementById('prod-qty').value);
+
+  if (!employee_name) {
+    toast('Please enter your name or initials', 'error');
+    document.getElementById('prod-employee-name').focus();
+    return;
+  }
   if (!flavor_id || !quantity) return;
+
   try {
     await api('/api/production', {
       method: 'POST',
-      body: JSON.stringify({ flavor_id, product_type, quantity }),
+      body: JSON.stringify({ flavor_id, product_type, quantity, employee_name }),
     });
     const flavorName = flavors.find(f => f.id === flavor_id)?.name || '';
     toast(`Logged ${quantity} ${product_type}(s) of ${flavorName}`);
+
+    // Save employee name for next time
+    localStorage.setItem('employee-name', employee_name);
+
     document.getElementById('prod-qty').value = '1';
     loadProductionHistory();
   } catch (e) {
@@ -518,16 +851,19 @@ async function loadProductionHistory() {
       wrap.innerHTML = '<p class="muted">No production logged in the last 7 days.</p>';
       return;
     }
-    wrap.innerHTML = data.map(p => `
+    wrap.innerHTML = data.map(p => {
+      const employeeDisplay = p.employee_name ? `<span class="prod-item-employee">${esc(p.employee_name)}</span> · ` : '';
+      return `
       <div class="prod-item">
         <div class="prod-item-info">
           <strong>${esc(p.flavor_name)}</strong>
-          <span class="prod-item-meta">${p.product_type} · ${formatTime(p.logged_at)}</span>
+          <span class="prod-item-meta">${employeeDisplay}${p.product_type} · ${formatTime(p.logged_at)}</span>
         </div>
         <div class="prod-item-qty">${p.quantity}</div>
         <button class="prod-item-delete" onclick="deleteProduction(${p.id})" title="Delete">&#10005;</button>
       </div>
-    `).join('');
+    `;
+    }).join('');
   } catch (e) {
     console.error('Failed to load production:', e);
   }
@@ -549,11 +885,20 @@ async function loadSmartDefaults() {
   try {
     smartDefaults = await api('/api/counts/smart-defaults');
     countEdits = {};
+    countPredictions = {};
     smartDefaults.forEach(d => {
       const key = `${d.flavor_id}-${d.product_type}`;
       countEdits[key] = d.estimated_count;
+      countPredictions[key] = d.estimated_count;  // Store prediction for variance calculation
     });
     renderCountForm();
+
+    // Restore employee name from last time
+    const savedName = localStorage.getItem('employee-name');
+    const employeeInput = document.getElementById('employee-name');
+    if (savedName && employeeInput) {
+      employeeInput.value = savedName;
+    }
   } catch (e) {
     console.error('Failed to load smart defaults:', e);
   }
@@ -592,19 +937,31 @@ function renderCountForm() {
       flavor.types.forEach(d => {
         const key = `${d.flavor_id}-${d.product_type}`;
         const val = countEdits[key] !== undefined ? countEdits[key] : d.estimated_count;
+        const predicted = countPredictions[key] || d.estimated_count;
         const isTub = d.product_type === 'tub';
         const frac = isTub ? Math.round((val - Math.floor(val)) * 100) / 100 : 0;
+
+        // Calculate initial variance
+        const { variance, variancePct, colorClass, icon, message } = calculateVariance(predicted, val);
+        const varianceHtml = predicted > 0 ? `
+          <span class="variance-indicator ${colorClass}">
+            ${icon} ${parseFloat(variance) >= 0 ? '+' : ''}${variance} (${variancePct}%)
+            ${message ? `<span class="variance-message">${message}</span>` : ''}
+          </span>
+        ` : '';
+
         html += `
           <div class="count-row${isTub ? ' count-row-tub' : ''}">
             <div class="count-flavor">
               <div class="count-flavor-name">${esc(d.flavor_name)}</div>
               <div class="count-flavor-type">${d.product_type}</div>
+              <div class="count-expected">Expected: ${isTub ? formatTubCount(predicted) : predicted}</div>
             </div>
             <div class="count-input-wrap">
               <div class="count-controls">
                 <button class="qty-btn" onclick="adjustCountQty('${key}', -1)">&#8722;</button>
                 <input type="number" id="count-${key}" value="${val}" min="0" step="${isTub ? '0.25' : '1'}"
-                       onchange="countEdits['${key}']=${isTub ? 'parseFloat' : 'parseInt'}(this.value)||0; updatePartialToggle('${key}')">
+                       onchange="countEdits['${key}']=${isTub ? 'parseFloat' : 'parseInt'}(this.value)||0; updatePartialToggle('${key}'); updateVarianceIndicator('${key}')">
                 <button class="qty-btn" onclick="adjustCountQty('${key}', 1)">+</button>
               </div>
               ${isTub ? `
@@ -614,6 +971,7 @@ function renderCountForm() {
                 <button class="partial-btn${frac === 0.5 ? ' active' : ''}" data-frac="0.5" onclick="setPartial('${key}', 0.5)">\u00BD</button>
                 <button class="partial-btn${frac === 0.75 ? ' active' : ''}" data-frac="0.75" onclick="setPartial('${key}', 0.75)">\u00BE</button>
               </div>` : ''}
+              <div class="count-variance" id="variance-${key}">${varianceHtml}</div>
             </div>
             <div class="count-meta">avg ${d.avg_daily_consumption}/d</div>
           </div>`;
@@ -626,9 +984,26 @@ function renderCountForm() {
 }
 
 async function submitCounts() {
+  // Get employee name
+  const employeeNameInput = document.getElementById('employee-name');
+  const employeeName = employeeNameInput?.value?.trim();
+
+  if (!employeeName) {
+    toast('Please enter your name or initials', 'error');
+    employeeNameInput?.focus();
+    return;
+  }
+
   const entries = Object.entries(countEdits).map(([key, count]) => {
     const [flavor_id, product_type] = key.split('-');
-    return { flavor_id: parseInt(flavor_id), product_type, count };
+    const predicted_count = countPredictions[key] || null;
+    return {
+      flavor_id: parseInt(flavor_id),
+      product_type,
+      count,
+      predicted_count,
+      employee_name: employeeName
+    };
   });
 
   if (!entries.length) {
@@ -646,6 +1021,10 @@ async function submitCounts() {
       body: JSON.stringify({ entries }),
     });
     toast(`Saved ${entries.length} counts!`);
+
+    // Save employee name to localStorage for next time
+    localStorage.setItem('employee-name', employeeName);
+
     loadCountHistory();
   } catch (e) {
     toast(e.message, 'error');
@@ -1085,6 +1464,7 @@ function countClass(n) {
 // ===== CHARTS =====
 let popChart = null;
 let pvcChart = null;
+let varianceChart = null;
 
 function renderPopularityChart(data) {
   const ctx = document.getElementById('popularity-chart');
@@ -1233,6 +1613,7 @@ async function loadInsights() {
 let trendChart = null;
 let wasteChart = null;
 let categoryChart = null;
+let varianceTrendChart = null;
 let reportRangeInitialized = false;
 
 function initReportRangeToggle() {
@@ -1261,11 +1642,13 @@ async function loadReports() {
   }
 
   try {
-    const [consumption, popularity, waste, parAcc] = await Promise.all([
+    const [consumption, popularity, waste, parAcc, variance, empPerf] = await Promise.all([
       api(`/api/dashboard/consumption?days=${reportDays}`),
       api(`/api/dashboard/popularity?days=${reportDays}`),
       api(`/api/reports/waste?days=${reportDays}`),
       api(`/api/reports/par-accuracy?days=${reportDays}`),
+      api(`/api/reports/variance?days=${reportDays}`),
+      api(`/api/reports/employee-performance?days=${reportDays}`),
     ]);
 
     // Cache data for exports
@@ -1273,7 +1656,10 @@ async function loadReports() {
     reportCache.popularity = popularity;
     reportCache.waste = waste;
     reportCache.parAccuracy = parAcc;
+    reportCache.variance = variance;
+    reportCache.employeePerformance = empPerf;
 
+    renderVarianceReport(variance);
     renderTrendChart(consumption);
     renderTrendSummary(consumption);
     renderWasteChart(waste);
@@ -1281,6 +1667,7 @@ async function loadReports() {
     renderCategoryChart(popularity);
     renderCategoryTable(popularity);
     renderParAccuracy(parAcc);
+    renderEmployeePerformance(empPerf);
   } catch (e) {
     console.error('Reports load failed:', e);
     toast('Failed to load reports', 'error');
@@ -1629,6 +2016,194 @@ function renderParAccuracy(data) {
     </table>`;
 }
 
+function renderEmployeePerformance(data) {
+  const wrap = document.getElementById('employee-performance-wrap');
+
+  if (!data || !data.employees || data.employees.length === 0) {
+    wrap.innerHTML = '<p class="muted">No employee performance data yet. Submit counts with employee names to see analytics.</p>';
+    return;
+  }
+
+  const employees = data.employees;
+
+  // Summary stats
+  const totalEmployees = employees.length;
+  const avgAccuracy = employees.reduce((sum, e) => sum + e.accuracy_score, 0) / totalEmployees;
+  const bestPerformer = employees[0]; // Already sorted by accuracy
+
+  const summaryHtml = `
+    <div class="emp-perf-summary">
+      <div class="emp-perf-stat">
+        <div class="emp-perf-number">${totalEmployees}</div>
+        <div class="emp-perf-label">Active Employees</div>
+      </div>
+      <div class="emp-perf-stat">
+        <div class="emp-perf-number">${avgAccuracy.toFixed(1)}%</div>
+        <div class="emp-perf-label">Average Accuracy</div>
+      </div>
+      <div class="emp-perf-stat success">
+        <div class="emp-perf-number">🏆 ${esc(bestPerformer.employee_name)}</div>
+        <div class="emp-perf-label">Top Performer</div>
+      </div>
+    </div>
+  `;
+
+  // Leaderboard table
+  const rows = employees.map((emp, index) => {
+    const rankIcon = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : (index + 1);
+    const reliabilityClass = emp.reliability === 'High' ? 'emp-reliable-high' : emp.reliability === 'Low' ? 'emp-reliable-low' : 'emp-reliable-med';
+    const accuracyClass = emp.accuracy_score >= 90 ? 'emp-accuracy-high' : emp.accuracy_score >= 75 ? 'emp-accuracy-med' : 'emp-accuracy-low';
+
+    return `<tr>
+      <td class="emp-rank">${rankIcon}</td>
+      <td class="emp-name">${esc(emp.employee_name)}</td>
+      <td class="${accuracyClass} emp-accuracy-score">${emp.accuracy_score}%</td>
+      <td>${emp.avg_variance_pct}%</td>
+      <td>${emp.total_counts}</td>
+      <td>${emp.total_production}</td>
+      <td>${emp.total_activity}</td>
+      <td><span class="emp-reliability-badge ${reliabilityClass}">${emp.reliability}</span></td>
+    </tr>`;
+  });
+
+  const tableHtml = `
+    <h3>Accuracy Leaderboard</h3>
+    <table class="report-table emp-perf-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Employee</th>
+          <th>Accuracy</th>
+          <th>Avg Variance</th>
+          <th>Counts</th>
+          <th>Production</th>
+          <th>Total Activity</th>
+          <th>Reliability</th>
+        </tr>
+      </thead>
+      <tbody>${rows.join('')}</tbody>
+    </table>
+  `;
+
+  wrap.innerHTML = summaryHtml + tableHtml;
+}
+
+
+function renderVarianceReport(data) {
+  if (!data) return;
+
+  const summaryWrap = document.getElementById('variance-summary');
+  const itemsWrap = document.getElementById('variance-items');
+  const chartCanvas = document.getElementById('variance-chart');
+
+  // Render summary
+  const summary = data.summary;
+  summaryWrap.innerHTML = `
+    <div class="variance-summary-grid">
+      <div class="variance-summary-stat">
+        <div class="variance-summary-number">${summary.total_items}</div>
+        <div class="variance-summary-label">Items Counted</div>
+      </div>
+      <div class="variance-summary-stat ${summary.high_variance_count > 0 ? 'variance-warn' : ''}">
+        <div class="variance-summary-number">${summary.high_variance_count}</div>
+        <div class="variance-summary-label">High Variance (>25%)</div>
+      </div>
+      <div class="variance-summary-stat">
+        <div class="variance-summary-number">${summary.avg_variance_pct}%</div>
+        <div class="variance-summary-label">Avg Variance</div>
+      </div>
+    </div>
+  `;
+
+  // Render trend chart
+  if (varianceTrendChart) varianceTrendChart.destroy();
+
+  if (data.trend_data && data.trend_data.length > 0) {
+    chartCanvas.style.display = '';
+    const colors = getChartColors();
+
+    varianceTrendChart = new Chart(chartCanvas, {
+      type: 'line',
+      data: {
+        labels: data.trend_data.map(d => {
+          const dt = new Date(d.date + 'T12:00:00');
+          return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        }),
+        datasets: [
+          {
+            label: 'Avg Variance %',
+            data: data.trend_data.map(d => d.avg_variance_pct),
+            borderColor: colors.orange,
+            backgroundColor: colors.orange + '20',
+            tension: 0.3,
+            pointRadius: 4,
+            borderWidth: 2,
+            fill: true,
+          },
+          {
+            label: 'High Variance Count',
+            data: data.trend_data.map(d => d.high_variance_count),
+            borderColor: colors.red,
+            backgroundColor: colors.red + '20',
+            tension: 0.3,
+            pointRadius: 4,
+            borderWidth: 2,
+            fill: false,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        aspectRatio: 2.0,
+        plugins: {
+          legend: {
+            labels: { color: colors.textColor, font: { family: 'Roboto Mono', size: 11 } },
+          },
+        },
+        scales: {
+          x: { grid: { display: false }, ticks: { color: colors.textColor, font: { family: 'Roboto Mono', size: 10 } } },
+          y: { grid: { color: colors.gridColor }, ticks: { color: colors.textColor, font: { family: 'Roboto Mono', size: 11 } }, beginAtZero: true },
+        },
+      },
+    });
+  } else {
+    chartCanvas.style.display = 'none';
+  }
+
+  // Render high variance items table
+  if (!data.high_variance_items || data.high_variance_items.length === 0) {
+    itemsWrap.innerHTML = '<p class="muted">No high variance items. All counts look good!</p>';
+    return;
+  }
+
+  const rows = data.high_variance_items.map(item => {
+    const varianceClass = Math.abs(item.variance_pct) > 50 ? 'variance-critical' : 'variance-high';
+    const sign = item.variance >= 0 ? '+' : '';
+    const displayPredicted = item.product_type === 'tub' ? formatTubCount(item.predicted) : item.predicted;
+    const displayActual = item.product_type === 'tub' ? formatTubCount(item.actual) : item.actual;
+    const employeeDisplay = item.employee_name ? esc(item.employee_name) : '<span class="variance-no-employee">—</span>';
+
+    return `<tr class="${varianceClass}">
+      <td>${esc(item.flavor_name)}</td>
+      <td>${item.product_type}</td>
+      <td>${displayPredicted}</td>
+      <td>${displayActual}</td>
+      <td class="${varianceClass}">${sign}${item.variance} (${item.variance_pct}%)</td>
+      <td class="variance-employee">${employeeDisplay}</td>
+      <td class="variance-date">${formatDate(item.date)}</td>
+    </tr>`;
+  });
+
+  itemsWrap.innerHTML = `
+    <h3>Items Needing Attention</h3>
+    <table class="report-table variance-table">
+      <thead><tr><th>Flavor</th><th>Type</th><th>Expected</th><th>Actual</th><th>Variance</th><th>Employee</th><th>Date</th></tr></thead>
+      <tbody>${rows.join('')}</tbody>
+    </table>
+  `;
+}
+
 // ===== EXPORT =====
 function toggleExportDropdown(e, reportName) {
   e.stopPropagation();
@@ -1649,6 +2224,25 @@ function toggleExportDropdown(e, reportName) {
 
 function getReportData(reportName) {
   switch (reportName) {
+    case 'variance': {
+      const data = reportCache.variance;
+      if (!data || !data.high_variance_items) return null;
+      return {
+        title: `Variance Report (${reportDays} Days)`,
+        headers: ['Flavor', 'Type', 'Expected', 'Actual', 'Variance', 'Variance %', 'Employee', 'Date'],
+        rows: data.high_variance_items.map(item => [
+          item.flavor_name,
+          item.product_type,
+          item.predicted,
+          item.actual,
+          item.variance,
+          item.variance_pct + '%',
+          item.employee_name || 'N/A',
+          item.date
+        ]),
+        chartCanvas: document.getElementById('variance-chart'),
+      };
+    }
     case 'trend': {
       const data = reportCache.consumption;
       const byFlavor = {};
@@ -1731,6 +2325,25 @@ function getReportData(reportName) {
           d.flavor_name, d.product_type, d.current_target, d.avg_daily_use,
           d.suggested_target, d.status === 'well_set' ? 'Well Set' : d.status === 'too_high' ? 'Too High' : 'Too Low',
           d.action || '',
+        ]),
+        chartCanvas: null,
+      };
+    }
+    case 'employee': {
+      const data = reportCache.employeePerformance;
+      if (!data || !data.employees) return null;
+      return {
+        title: `Employee Performance (${reportDays} Days)`,
+        headers: ['Rank', 'Employee', 'Accuracy %', 'Avg Variance %', 'Counts', 'Production', 'Total Activity', 'Reliability'],
+        rows: data.employees.map((emp, idx) => [
+          idx + 1,
+          emp.employee_name,
+          emp.accuracy_score + '%',
+          emp.avg_variance_pct + '%',
+          emp.total_counts,
+          emp.total_production,
+          emp.total_activity,
+          emp.reliability,
         ]),
         chartCanvas: null,
       };

@@ -20,6 +20,7 @@ class Production(Base):
     product_type = Column(String, nullable=False)  # tub, pint, quart
     quantity = Column(Integer, nullable=False)
     logged_at = Column(DateTime, server_default=func.now())
+    employee_name = Column(String, nullable=True)  # Who logged this production
 
 
 class DailyCount(Base):
@@ -30,6 +31,10 @@ class DailyCount(Base):
     product_type = Column(String, nullable=False)  # tub, pint, quart
     count = Column(Float, nullable=False)
     counted_at = Column(DateTime, server_default=func.now())
+    predicted_count = Column(Float, nullable=True)  # What the system predicted
+    variance = Column(Float, nullable=True)         # actual - predicted
+    variance_pct = Column(Float, nullable=True)     # (variance / predicted) * 100
+    employee_name = Column(String, nullable=True)   # Who submitted this count
 
 
 class ParLevel(Base):

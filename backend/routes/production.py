@@ -13,6 +13,7 @@ class ProductionCreate(BaseModel):
     flavor_id: int
     product_type: str  # tub, pint, quart
     quantity: int
+    employee_name: str = None  # Who logged this production
 
 
 @router.post("", status_code=201)
@@ -28,6 +29,7 @@ def log_production(entry: ProductionCreate, db: Session = Depends(get_db)):
         flavor_id=entry.flavor_id,
         product_type=entry.product_type,
         quantity=entry.quantity,
+        employee_name=entry.employee_name,
     )
     db.add(record)
     db.commit()
@@ -56,6 +58,7 @@ def list_production(
             "product_type": p.product_type,
             "quantity": p.quantity,
             "logged_at": p.logged_at.isoformat() if p.logged_at else None,
+            "employee_name": p.employee_name,
         }
         for p, name in rows
     ]

@@ -14,6 +14,8 @@ class CountEntry(BaseModel):
     flavor_id: int
     product_type: str  # tub, pint, quart
     count: float
+    predicted_count: float = None  # Optional: the system's prediction
+    employee_name: str = None  # Optional: who submitted this count
 
 
 class CountBatch(BaseModel):
@@ -26,10 +28,22 @@ def submit_counts(batch: CountBatch, db: Session = Depends(get_db)):
     for entry in batch.entries:
         if entry.product_type not in ("tub", "pint", "quart"):
             raise HTTPException(400, f"Invalid product_type: {entry.product_type}")
+
+        # Calculate variance if prediction was provided
+        variance = None
+        variance_pct = None
+        if entry.predicted_count is not None and entry.predicted_count > 0:
+            variance = round(entry.count - entry.predicted_count, 2)
+            variance_pct = round((variance / entry.predicted_count) * 100, 2)
+
         record = DailyCount(
             flavor_id=entry.flavor_id,
             product_type=entry.product_type,
             count=entry.count,
+            predicted_count=entry.predicted_count,
+            variance=variance,
+            variance_pct=variance_pct,
+            employee_name=entry.employee_name,
         )
         db.add(record)
         saved.append(record)
