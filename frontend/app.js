@@ -1012,9 +1012,9 @@ async function submitCounts() {
   let countedAt = null;
 
   if (countDate) {
-    // Parse date and set time to 9 PM (21:00) to match evening count time
-    const dateObj = new Date(countDate + 'T21:00:00');
-    countedAt = dateObj.toISOString();
+    // Parse date and set time to 9 PM UTC to avoid timezone shifts
+    // Format: 2026-02-14 -> 2026-02-14T21:00:00Z (UTC)
+    countedAt = countDate + 'T21:00:00Z';
   }
 
   const entries = Object.entries(countEdits).map(([key, count]) => {
