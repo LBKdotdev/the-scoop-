@@ -30,7 +30,8 @@ print(f"Reading {tubs_file}...")
 with open(tubs_file, 'r') as f:
     reader = csv.DictReader(f)
     for row in reader:
-        flavor_name = row['flavor']
+        # Support both 'flavor' and 'flavor_name' columns
+        flavor_name = row.get('flavor_name') or row.get('flavor')
         if flavor_name not in flavor_map:
             print(f"  WARNING: Flavor '{flavor_name}' not found in database, skipping")
             continue
@@ -40,6 +41,7 @@ with open(tubs_file, 'r') as f:
             'product_type': row['product_type'],
             'date': row['date'],
             'count': float(row['count']) if row['count'] and row['count'] != '?' else 0,
+            'employee_name': row.get('employee_name', '').strip() or None,
         })
 
 # Read pints & quarts
@@ -47,7 +49,8 @@ print(f"Reading {pints_quarts_file}...")
 with open(pints_quarts_file, 'r') as f:
     reader = csv.DictReader(f)
     for row in reader:
-        flavor_name = row['flavor']
+        # Support both 'flavor' and 'flavor_name' columns
+        flavor_name = row.get('flavor_name') or row.get('flavor')
         if flavor_name not in flavor_map:
             print(f"  WARNING: Flavor '{flavor_name}' not found in database, skipping")
             continue
@@ -57,6 +60,7 @@ with open(pints_quarts_file, 'r') as f:
             'product_type': row['product_type'],
             'date': row['date'],
             'count': float(row['count']) if row['count'] and row['count'] != '?' else 0,
+            'employee_name': row.get('employee_name', '').strip() or None,
         })
 
 # Insert all counts
@@ -71,10 +75,11 @@ for rec in count_records:
         product_type=rec['product_type'],
         count=rec['count'],
         counted_at=counted_at,
+        employee_name=rec.get('employee_name'),
     ))
 
 db.commit()
 db.close()
 
-print(f"\n✓ Successfully imported {len(count_records)} real count records!")
-print("Database now contains your actual inventory data from 2/9-2/12.")
+print(f"\nSuccessfully imported {len(count_records)} real count records!")
+print("Database now contains your actual inventory data.")

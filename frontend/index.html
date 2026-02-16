@@ -158,6 +158,11 @@
       <p class="muted">Tap to adjust. Smart defaults pre-filled from last count + production − avg consumption.</p>
 
       <div class="employee-input-wrap">
+        <label for="count-date">Count Date</label>
+        <input type="date" id="count-date" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border); border-radius: 8px; background: var(--input-bg); color: var(--text); font-size: 1rem; margin-bottom: 1rem;">
+      </div>
+
+      <div class="employee-input-wrap">
         <label for="employee-name">Your Name/Initials</label>
         <input type="text" id="employee-name" placeholder="e.g., Audrey AH or Napoleon ND" maxlength="50">
       </div>
@@ -176,8 +181,9 @@
         <select id="count-type-filter" onchange="renderCountForm()">
           <option value="all">All Types</option>
           <option value="tub">Tubs</option>
-          <option value="pint">Pints</option>
-          <option value="quart">Quarts</option>
+          <option value="pints-quarts">Pints & Quarts</option>
+          <option value="pint">Pints Only</option>
+          <option value="quart">Quarts Only</option>
         </select>
       </div>
       <div id="count-form-wrap"></div>

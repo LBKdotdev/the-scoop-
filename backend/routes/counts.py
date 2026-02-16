@@ -16,6 +16,7 @@ class CountEntry(BaseModel):
     count: float
     predicted_count: float = None  # Optional: the system's prediction
     employee_name: str = None  # Optional: who submitted this count
+    counted_at: datetime = None  # Optional: specific date/time for this count
 
 
 class CountBatch(BaseModel):
@@ -36,6 +37,9 @@ def submit_counts(batch: CountBatch, db: Session = Depends(get_db)):
             variance = round(entry.count - entry.predicted_count, 2)
             variance_pct = round((variance / entry.predicted_count) * 100, 2)
 
+        # Use provided timestamp or default to now
+        counted_at = entry.counted_at if entry.counted_at else datetime.utcnow()
+
         record = DailyCount(
             flavor_id=entry.flavor_id,
             product_type=entry.product_type,
@@ -44,6 +48,7 @@ def submit_counts(batch: CountBatch, db: Session = Depends(get_db)):
             variance=variance,
             variance_pct=variance_pct,
             employee_name=entry.employee_name,
+            counted_at=counted_at,
         )
         db.add(record)
         saved.append(record)

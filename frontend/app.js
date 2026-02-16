@@ -28,6 +28,14 @@ function init() {
   initTheme();
   initTabs();
   initTypeToggles();
+
+  // Set count date to today by default
+  const countDateInput = document.getElementById('count-date');
+  if (countDateInput) {
+    const today = new Date().toISOString().split('T')[0];
+    countDateInput.value = today;
+  }
+
   loadFlavors().then(() => {
     loadHome();
     loadProductionHistory();
@@ -911,7 +919,11 @@ function renderCountForm() {
 
   let filtered = smartDefaults;
   if (catFilter !== 'all') filtered = filtered.filter(d => d.category === catFilter);
-  if (typeFilter !== 'all') filtered = filtered.filter(d => d.product_type === typeFilter);
+  if (typeFilter === 'pints-quarts') {
+    filtered = filtered.filter(d => d.product_type === 'pint' || d.product_type === 'quart');
+  } else if (typeFilter !== 'all') {
+    filtered = filtered.filter(d => d.product_type === typeFilter);
+  }
 
   // Group by flavor
   const byFlavor = {};
@@ -994,6 +1006,17 @@ async function submitCounts() {
     return;
   }
 
+  // Get selected date and set time to 9 PM (21:00)
+  const countDateInput = document.getElementById('count-date');
+  const countDate = countDateInput?.value;
+  let countedAt = null;
+
+  if (countDate) {
+    // Parse date and set time to 9 PM (21:00) to match evening count time
+    const dateObj = new Date(countDate + 'T21:00:00');
+    countedAt = dateObj.toISOString();
+  }
+
   const entries = Object.entries(countEdits).map(([key, count]) => {
     const [flavor_id, product_type] = key.split('-');
     const predicted_count = countPredictions[key] || null;
@@ -1002,7 +1025,8 @@ async function submitCounts() {
       product_type,
       count,
       predicted_count,
-      employee_name: employeeName
+      employee_name: employeeName,
+      counted_at: countedAt
     };
   });
 
