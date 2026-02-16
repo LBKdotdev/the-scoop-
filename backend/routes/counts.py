@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc, func, and_
 from pydantic import BaseModel
 from datetime import datetime, timedelta, date
-from typing import List
+from typing import List, Optional
 from database import get_db
 from models import DailyCount, Production, Flavor, ParLevel
 
@@ -14,9 +14,9 @@ class CountEntry(BaseModel):
     flavor_id: int
     product_type: str  # tub, pint, quart
     count: float
-    predicted_count: float = None  # Optional: the system's prediction
-    employee_name: str = None  # Optional: who submitted this count
-    counted_at: datetime = None  # Optional: specific date/time for this count
+    predicted_count: Optional[float] = None  # Optional: the system's prediction
+    employee_name: Optional[str] = None  # Optional: who submitted this count
+    counted_at: Optional[datetime] = None  # Optional: specific date/time for this count
 
 
 class CountBatch(BaseModel):
