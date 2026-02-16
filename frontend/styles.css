@@ -336,6 +336,23 @@ header h1 {
   font-size: 0.7rem;
 }
 
+.btn-flag-done {
+  padding: 4px 8px;
+  font-size: 0.75rem;
+  background: var(--orange);
+  color: #1A1A1A;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  margin-left: 8px;
+  transition: all 0.2s;
+}
+
+.btn-flag-done:hover {
+  opacity: 0.8;
+  transform: scale(1.05);
+}
+
 /* ===== FORMS ===== */
 label {
   display: block;
@@ -479,6 +496,60 @@ input[type="number"] { -moz-appearance: textfield; }
 .alert-icon { font-size: 1.2rem; }
 .alert-text { flex: 1; }
 .alert-text strong { display: block; font-size: 0.85rem; }
+
+/* ===== AT RISK SECTION ===== */
+.at-risk-hint {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+
+#at-risk-flavors {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.at-risk-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+  transition: background 0.2s ease;
+}
+
+.at-risk-critical {
+  background: var(--alert-critical-bg);
+  border-left: 4px solid var(--red);
+}
+
+.at-risk-warning {
+  background: var(--alert-warning-bg);
+  border-left: 4px solid var(--orange);
+}
+
+.at-risk-low {
+  background: var(--alert-low-bg);
+  border-left: 4px solid var(--cyan);
+}
+
+.at-risk-info {
+  flex: 1;
+}
+
+.at-risk-info strong {
+  display: block;
+  font-size: 0.85rem;
+  margin-bottom: 2px;
+}
+
+.at-risk-days {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
 
 /* ===== INVENTORY TABLE ===== */
 .table-wrap { overflow-x: auto; }

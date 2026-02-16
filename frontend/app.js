@@ -168,6 +168,42 @@ function toast(msg, type = 'success') {
   setTimeout(() => el.classList.add('hidden'), 2500);
 }
 
+function isSpecialtyCategory(category) {
+  if (!category) return false;
+  const lower = category.toLowerCase();
+  return lower === 'specialty' || lower === 'seasonal' || lower === 'specials';
+}
+
+async function discontinueFlavor(flavorId) {
+  if (!confirm('Mark this flavor as discontinued? It will be hidden from counts and make lists.')) {
+    return;
+  }
+  try {
+    const result = await api(`/api/flavors/${flavorId}/discontinue`, { method: 'PUT' });
+    toast(result.message || 'Flavor discontinued');
+    // Reload data
+    await loadFlavors();
+    loadHome();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+async function reactivateFlavor(flavorId) {
+  if (!confirm('Reactivate this flavor? It will appear in counts and make lists again.')) {
+    return;
+  }
+  try {
+    const result = await api(`/api/flavors/${flavorId}/reactivate`, { method: 'PUT' });
+    toast(result.message || 'Flavor reactivated');
+    // Reload data
+    await loadFlavors();
+    loadHome();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
 function adjustQty(inputId, delta) {
   const input = document.getElementById(inputId);
   const val = parseInt(input.value) || 0;
@@ -1302,16 +1338,18 @@ function switchToTab(tabName) {
 // ===== DASHBOARD =====
 async function loadDashboard() {
   try {
-    const [inv, alerts, popularity, pvc, makeList] = await Promise.all([
+    const [inv, alerts, popularity, pvc, makeList, atRisk] = await Promise.all([
       api('/api/dashboard/inventory'),
       api('/api/dashboard/alerts'),
       api('/api/dashboard/popularity?days=7'),
       api('/api/dashboard/production-vs-consumption?days=7'),
       api('/api/dashboard/make-list'),
+      api('/api/flavors/at-risk'),
     ]);
     inventory = inv;
     renderMakeList(makeList);
     renderAlerts(alerts);
+    renderAtRisk(atRisk);
     renderInventoryTable();
     renderPopularityChart(popularity);
     renderPvcChart(pvc);
@@ -1376,11 +1414,16 @@ function renderMakeList(data) {
 
   needsMaking.forEach(item => {
     const totalBatches = calculateTotalBatches(item);
+    const isSpecialty = isSpecialtyCategory(item.category);
+    const discontinueBtn = isSpecialty
+      ? `<button class="btn-flag-done" onclick="discontinueFlavor(${item.flavor_id})" title="Mark as done">&#127937;</button>`
+      : '';
     html += `
       <tr class="ml-${item.status}">
         <td>
           <span class="ml-status-dot ${item.status}"></span>
           <span class="ml-flavor">${esc(item.flavor_name)}</span>
+          ${discontinueBtn}
         </td>
         <td class="ml-qty">${formatBatchCount(totalBatches)}</td>
         <td>${productCell(item.products, 'tub')}</td>
@@ -1392,11 +1435,16 @@ function renderMakeList(data) {
   // Show stocked items
   if (stocked.length) {
     stocked.forEach(item => {
+      const isSpecialty = isSpecialtyCategory(item.category);
+      const discontinueBtn = isSpecialty
+        ? `<button class="btn-flag-done" onclick="discontinueFlavor(${item.flavor_id})" title="Mark as done">&#127937;</button>`
+        : '';
       html += `
         <tr class="ml-stocked">
           <td>
             <span class="ml-status-dot stocked"></span>
             <span class="ml-flavor">${esc(item.flavor_name)}</span>
+            ${discontinueBtn}
           </td>
           <td class="ml-qty">0</td>
           <td>${productCell(item.products, 'tub')}</td>
@@ -1431,6 +1479,30 @@ function renderAlerts(alerts) {
           <strong>${esc(a.flavor_name)} (${a.product_type})</strong>
           ${esc(message)}
         </div>
+      </div>`;
+  }).join('');
+}
+
+function renderAtRisk(atRisk) {
+  const section = document.getElementById('at-risk-section');
+  const wrap = document.getElementById('at-risk-flavors');
+
+  if (!atRisk || !atRisk.length) {
+    section.classList.add('hidden');
+    return;
+  }
+
+  section.classList.remove('hidden');
+  wrap.innerHTML = atRisk.map(f => {
+    const daysLeft = f.days_until_auto_discontinue;
+    const urgencyClass = daysLeft <= 3 ? 'critical' : daysLeft <= 5 ? 'warning' : 'low';
+    return `
+      <div class="at-risk-item at-risk-${urgencyClass}">
+        <div class="at-risk-info">
+          <strong>${esc(f.name)}</strong>
+          <span class="at-risk-days">Last counted ${f.days_since_count} days ago · Auto-discontinue in ${daysLeft} days</span>
+        </div>
+        <button class="btn-flag-done" onclick="discontinueFlavor(${f.id})" title="Mark as done now">&#127937; Done</button>
       </div>`;
   }).join('');
 }

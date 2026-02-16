@@ -2,8 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, List
+from datetime import datetime
 from database import get_db
 from models import Flavor, ParLevel
+from auto_discontinue import get_at_risk_flavors, auto_discontinue_specialties
 
 router = APIRouter(prefix="/api/flavors", tags=["flavors"])
 
@@ -40,10 +42,29 @@ class ParLevelBulkUpdate(BaseModel):
 
 
 @router.get("")
-def list_flavors(active_only: bool = True, db: Session = Depends(get_db)):
+def list_flavors(
+    active_only: bool = True,
+    include_discontinued: bool = False,
+    status_filter: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """List flavors with optional filtering.
+
+    Args:
+        active_only: Legacy filter (uses status field internally)
+        include_discontinued: Include discontinued flavors in results
+        status_filter: Filter by specific status ("active", "discontinued", "archived")
+    """
     query = db.query(Flavor)
-    if active_only:
-        query = query.filter(Flavor.active == True)
+
+    # Handle status filtering
+    if status_filter:
+        query = query.filter(Flavor.status == status_filter)
+    elif active_only and not include_discontinued:
+        query = query.filter(Flavor.status == 'active')
+    elif include_discontinued:
+        query = query.filter(Flavor.status.in_(['active', 'discontinued']))
+
     return query.order_by(Flavor.category, Flavor.name).all()
 
 
@@ -125,6 +146,21 @@ def bulk_update_par_levels(data: ParLevelBulkUpdate, db: Session = Depends(get_d
     return {"updated": updated}
 
 
+# ===== AUTO-DISCONTINUATION ENDPOINTS (before parameterized routes) =====
+
+@router.get("/at-risk")
+def get_at_risk(db: Session = Depends(get_db)):
+    """Get specialty flavors at risk of auto-discontinuation."""
+    return get_at_risk_flavors(db)
+
+
+@router.post("/admin/auto-discontinue")
+def run_auto_discontinue(db: Session = Depends(get_db)):
+    """Manually trigger auto-discontinuation check (admin only)."""
+    result = auto_discontinue_specialties(db)
+    return result
+
+
 # ===== FLAVOR CRUD (parameterized routes) =====
 
 @router.put("/{flavor_id}")
@@ -149,8 +185,45 @@ def archive_flavor(flavor_id: int, db: Session = Depends(get_db)):
     if not flavor:
         raise HTTPException(404, "Flavor not found")
     flavor.active = False
+    flavor.status = 'archived'
     db.commit()
     return {"message": f"'{flavor.name}' archived"}
+
+
+@router.put("/{flavor_id}/discontinue")
+def discontinue_flavor(flavor_id: int, db: Session = Depends(get_db)):
+    """Manually mark a flavor as discontinued (typically for sold-out specialties)."""
+    flavor = db.query(Flavor).filter(Flavor.id == flavor_id).first()
+    if not flavor:
+        raise HTTPException(404, "Flavor not found")
+    if flavor.status == 'discontinued':
+        return {"message": f"'{flavor.name}' is already discontinued"}
+
+    flavor.status = 'discontinued'
+    flavor.discontinued_at = datetime.utcnow()
+    flavor.manually_discontinued = True
+    flavor.active = False  # Backward compatibility
+    db.commit()
+    db.refresh(flavor)
+    return {"message": f"'{flavor.name}' marked as discontinued", "flavor": flavor}
+
+
+@router.put("/{flavor_id}/reactivate")
+def reactivate_flavor(flavor_id: int, db: Session = Depends(get_db)):
+    """Reactivate a discontinued flavor."""
+    flavor = db.query(Flavor).filter(Flavor.id == flavor_id).first()
+    if not flavor:
+        raise HTTPException(404, "Flavor not found")
+    if flavor.status == 'active':
+        return {"message": f"'{flavor.name}' is already active"}
+
+    flavor.status = 'active'
+    flavor.discontinued_at = None
+    flavor.manually_discontinued = False
+    flavor.active = True  # Backward compatibility
+    db.commit()
+    db.refresh(flavor)
+    return {"message": f"'{flavor.name}' reactivated", "flavor": flavor}
 
 
 @router.put("/{flavor_id}/par-levels/{product_type}")

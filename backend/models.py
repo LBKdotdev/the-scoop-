@@ -11,6 +11,12 @@ class Flavor(Base):
     active = Column(Boolean, default=True)
     created_at = Column(DateTime, server_default=func.now())
 
+    # Auto-discontinuation fields
+    status = Column(String, nullable=False, default="active")  # active | discontinued | archived
+    discontinued_at = Column(DateTime, nullable=True)
+    last_counted_at = Column(DateTime, nullable=True)
+    manually_discontinued = Column(Boolean, default=False)
+
 
 class Production(Base):
     __tablename__ = "production"

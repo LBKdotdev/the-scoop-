@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, date
 from typing import List, Optional
 from database import get_db
 from models import DailyCount, Production, Flavor, ParLevel
+from utils import update_last_counted_cache
 
 router = APIRouter(prefix="/api/counts", tags=["counts"])
 
@@ -26,6 +27,8 @@ class CountBatch(BaseModel):
 @router.post("", status_code=201)
 def submit_counts(batch: CountBatch, db: Session = Depends(get_db)):
     saved = []
+    flavor_ids_to_update = set()
+
     for entry in batch.entries:
         if entry.product_type not in ("tub", "pint", "quart"):
             raise HTTPException(400, f"Invalid product_type: {entry.product_type}")
@@ -52,7 +55,14 @@ def submit_counts(batch: CountBatch, db: Session = Depends(get_db)):
         )
         db.add(record)
         saved.append(record)
+        flavor_ids_to_update.add(entry.flavor_id)
+
     db.commit()
+
+    # Update last_counted_at cache for affected flavors
+    for flavor_id in flavor_ids_to_update:
+        update_last_counted_cache(db, flavor_id)
+
     return {"message": f"Saved {len(saved)} count entries"}
 
 
@@ -61,8 +71,9 @@ def get_smart_defaults(db: Session = Depends(get_db)):
     """Calculate smart defaults for tonight's count.
 
     Formula: estimated = last_count + produced_since - avg_daily_consumption
+    Only includes active (non-discontinued) flavors.
     """
-    flavors = db.query(Flavor).filter(Flavor.active == True).all()
+    flavors = db.query(Flavor).filter(Flavor.status == 'active').all()
 
     # Build set of (flavor_id, product_type) with par target > 0
     active_pars = set()

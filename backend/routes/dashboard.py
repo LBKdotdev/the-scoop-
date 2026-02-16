@@ -13,7 +13,7 @@ router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 def current_inventory(db: Session = Depends(get_db)):
     """Current on-hand inventory per flavor per product type,
     based on last count + production since last count."""
-    flavors = db.query(Flavor).filter(Flavor.active == True).order_by(Flavor.category, Flavor.name).all()
+    flavors = db.query(Flavor).filter(Flavor.status == 'active').order_by(Flavor.category, Flavor.name).all()
     inventory = []
 
     for flavor in flavors:
@@ -79,7 +79,7 @@ def morning_make_list(db: Session = Depends(get_db)):
     par_levels = (
         db.query(ParLevel, Flavor.name, Flavor.category)
         .join(Flavor, ParLevel.flavor_id == Flavor.id)
-        .filter(Flavor.active == True)
+        .filter(Flavor.status == 'active')
         .all()
     )
 
