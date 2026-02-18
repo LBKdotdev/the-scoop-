@@ -2578,8 +2578,8 @@ async function loadSmartDefaults() {
     countPredictions = {};
     smartDefaults.forEach(d => {
       const key = `${d.flavor_id}-${d.product_type}`;
-      countEdits[key] = d.estimated_count;
-      countPredictions[key] = d.estimated_count;  // Store prediction for variance calculation
+      // Only store predictions — countEdits stays empty until user actively enters a count
+      countPredictions[key] = d.estimated_count;
     });
     renderCountForm();
 
