@@ -4351,7 +4351,8 @@ function esc(str) {
 
 function formatTime(iso) {
   if (!iso) return '';
-  const d = new Date(iso);
+  // Append Z so JS treats the server's UTC string as UTC, then converts to local time
+  const d = new Date(iso.endsWith('Z') ? iso : iso + 'Z');
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) +
     ' ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 }
