@@ -24,9 +24,11 @@ class Production(Base):
     id = Column(Integer, primary_key=True, index=True)
     flavor_id = Column(Integer, ForeignKey("flavors.id"), nullable=False)
     product_type = Column(String, nullable=False)  # tub, pint, quart
-    quantity = Column(Integer, nullable=False)
+    quantity = Column(Float, nullable=False)  # Changed to Float for fractional tubs
     logged_at = Column(DateTime, server_default=func.now())
     employee_name = Column(String, nullable=True)  # Who logged this production
+    deleted_at = Column(DateTime, nullable=True)   # Soft delete timestamp
+    deleted_by = Column(String, nullable=True)     # Who deleted this entry
 
 
 class DailyCount(Base):

@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from database import init_db, get_db
-from routes import flavors, production, counts, dashboard, reports
+from routes import flavors, production, counts, dashboard, reports, voice
 
 app = FastAPI(title="Ice Cream Inventory Tracker")
 
@@ -28,6 +28,7 @@ app.include_router(production.router)
 app.include_router(counts.router)
 app.include_router(dashboard.router)
 app.include_router(reports.router)
+app.include_router(voice.router)
 
 
 def run_migrations():
@@ -66,6 +67,13 @@ def run_migrations():
             print("Adding employee_name to production...")
             cursor.execute("ALTER TABLE production ADD COLUMN employee_name TEXT")
             print("✓ Employee name column added to production")
+
+        # Add soft delete columns to production
+        if "deleted_at" not in prod_columns:
+            print("Adding soft delete tracking to production...")
+            cursor.execute("ALTER TABLE production ADD COLUMN deleted_at TEXT")
+            cursor.execute("ALTER TABLE production ADD COLUMN deleted_by TEXT")
+            print("✓ Soft delete columns added to production")
 
         conn.commit()
         conn.close()

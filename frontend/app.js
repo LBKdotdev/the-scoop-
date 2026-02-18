@@ -9,9 +9,12 @@ let countEdits = {};  // keyed by "flavorId-productType"
 let countPredictions = {};  // keyed by "flavorId-productType" - stores predicted values
 let parLevels = [];   // par level data from API
 let parEdits = {};    // keyed by "flavorId-productType"
+let productionDefaults = [];  // flavor + type combinations for production
+let productionEdits = {};  // keyed by "flavorId-productType" - tracks production quantities
 let reportDays = 7;   // current report range
 let voiceRecognition = null;
 let isVoiceActive = false;
+let productionVoiceUndoStack = []; // Track voice changes for undo on production page
 
 // Cache report data for exports
 let reportCache = {
@@ -28,6 +31,7 @@ function init() {
   initTheme();
   initTabs();
   initTypeToggles();
+  setupEmployeeNameListener();
 
   // Set count date to today by default
   const countDateInput = document.getElementById('count-date');
@@ -124,7 +128,7 @@ function initTabs() {
       if (target === 'home') loadHome();
       if (target === 'dashboard') loadDashboard();
       if (target === 'count') loadSmartDefaults();
-      if (target === 'production') { loadProductionHistory(); restoreEmployeeName('prod-employee-name'); }
+      if (target === 'production') { loadProductionDefaults(); loadProductionHistory(); restoreEmployeeName('prod-employee-name'); }
       if (target === 'flavors') loadParLevels();
       if (target === 'reports') { initReportRangeToggle(); loadReports(); }
     });
@@ -142,9 +146,39 @@ function initTypeToggles() {
         if (hiddenInput && hiddenInput.type === 'hidden') {
           hiddenInput.value = btn.dataset.value;
         }
+
+        // Show/hide partial toggle for production form
+        if (group.id === 'prod-type-toggle') {
+          updateProductionPartialToggle(btn.dataset.value);
+        }
       });
     });
   });
+
+  // Initialize production partial toggle visibility
+  updateProductionPartialToggle('tub');
+}
+
+function updateProductionPartialToggle(type) {
+  const partialToggle = document.getElementById('prod-partial-toggle');
+  const qtyInput = document.getElementById('prod-qty');
+
+  if (!partialToggle || !qtyInput) return;
+
+  if (type === 'tub') {
+    partialToggle.style.display = 'flex';
+    qtyInput.step = '0.25';
+    qtyInput.min = '0';
+  } else {
+    partialToggle.style.display = 'none';
+    qtyInput.step = '1';
+    qtyInput.min = '1';
+    // Round to whole number if switching from tubs
+    const val = parseFloat(qtyInput.value);
+    if (val % 1 !== 0) {
+      qtyInput.value = Math.round(val);
+    }
+  }
 }
 
 // ===== API HELPERS =====
@@ -289,7 +323,7 @@ function startVoiceInput() {
   btn.classList.add('voice-active');
   btn.innerHTML = '<span class="voice-icon">🔴</span> Listening...';
 
-  showVoiceFeedback('Listening... Say: "Flavor name, type, number"', false);
+  showVoiceFeedback('Listening... Say multiple items naturally (e.g., "tub of vanilla and chocolate, pint of purple cow")', false);
 
   try {
     voiceRecognition.start();
@@ -326,7 +360,150 @@ function showVoiceFeedback(text, isFinal, type = 'info') {
   }
 }
 
-function parseVoiceCommand(transcript) {
+async function parseVoiceCommand(transcript) {
+  // Check for submit/commit command
+  if (/\b(commit|submit|done)\b/i.test(transcript)) {
+    showVoiceFeedback('✅ Submitting counts...', false, 'info');
+    // Trigger the submit button click
+    const submitBtn = document.getElementById('btn-submit-counts');
+    if (submitBtn && !submitBtn.disabled) {
+      submitBtn.click();
+    } else {
+      showVoiceFeedback('❌ Cannot submit - enter your name first', true, 'error');
+    }
+    return;
+  }
+
+  // Check for stop/turn off voice command
+  if (/\b(stop|stop listening|turn off voice|voice off|stop voice|cancel)\b/i.test(transcript)) {
+    stopVoiceInput();
+    showVoiceFeedback('✅ Voice input turned off', true, 'success');
+    return;
+  }
+
+  // Check for undo command
+  if (/\b(undo|undo last|cancel last)\b/i.test(transcript)) {
+    undoLastVoiceEntry();
+    return;
+  }
+
+  // Try enhanced conversational parser first
+  const result = parseConversationalInput(transcript);
+
+  if (result.success && result.confidence > 0.7) {
+    // High confidence - show confirmation
+    currentVoiceParseResult = result;
+    showVoiceConfirmation(result);
+  } else if (result.success && result.confidence > 0.4) {
+    // Medium confidence - try AI boost if enabled
+    if (isAIBoostEnabled()) {
+      await tryAIBoostParse(transcript, result);
+    } else {
+      currentVoiceParseResult = result;
+      showVoiceConfirmation(result);
+      toast('Low confidence - please verify entries', 'warning');
+    }
+  } else {
+    // Low confidence - try AI boost if enabled
+    if (isAIBoostEnabled()) {
+      await tryAIBoostParse(transcript, null);
+    } else {
+      // Fall back to simple single-entry parser
+      const simpleResult = parseSimpleVoiceCommand(transcript);
+      if (simpleResult) {
+        applyVoiceEntries([simpleResult]);
+      } else {
+        showVoiceFeedback(`❌ Could not parse. Try simpler format: "flavor, type, number"`, true, 'error');
+      }
+    }
+  }
+}
+
+async function tryAIBoostParse(transcript, fallbackResult) {
+  showVoiceFeedback('🤖 AI Boost processing...', false, 'info');
+
+  try {
+    const aiResult = await parseVoiceCommandWithGroq(transcript);
+
+    if (aiResult.success && aiResult.entries.length > 0) {
+      // AI succeeded
+      currentVoiceParseResult = aiResult;
+      showVoiceConfirmation(aiResult);
+      toast('🤖 AI Boost parsed successfully', 'success');
+    } else if (fallbackResult) {
+      // AI failed, use fallback
+      currentVoiceParseResult = fallbackResult;
+      showVoiceConfirmation(fallbackResult);
+      toast('Using standard parser (AI boost unclear)', 'warning');
+    } else {
+      showVoiceFeedback(`❌ Could not parse even with AI Boost. Try simpler format.`, true, 'error');
+    }
+  } catch (error) {
+    console.error('AI Boost error:', error);
+    if (fallbackResult) {
+      currentVoiceParseResult = fallbackResult;
+      showVoiceConfirmation(fallbackResult);
+      toast('AI Boost failed, using standard parser', 'warning');
+    } else {
+      showVoiceFeedback(`❌ AI Boost error: ${error.message}`, true, 'error');
+    }
+  }
+}
+
+async function parseVoiceCommandWithGroq(transcript) {
+  try {
+    const response = await api('/api/voice/parse-groq', {
+      method: 'POST',
+      body: JSON.stringify({
+        transcript,
+        available_flavors: flavors.map(f => f.name)
+      })
+    });
+
+    // Convert backend response to frontend format
+    const entries = response.entries.map(entry => {
+      const flavor = flavors.find(f => f.name === entry.flavor);
+      return {
+        flavor: entry.flavor,
+        flavorId: flavor ? flavor.id : null,
+        type: entry.type,
+        quantity: entry.quantity,
+        action: entry.action,
+        confidence: entry.confidence
+      };
+    }).filter(e => e.flavorId !== null);
+
+    return {
+      entries,
+      rawTranscript: transcript,
+      success: entries.length > 0,
+      confidence: response.confidence
+    };
+  } catch (error) {
+    console.error('Groq API error:', error);
+    return { success: false, entries: [], confidence: 0 };
+  }
+}
+
+function isAIBoostEnabled() {
+  const checkbox = document.getElementById('ai-boost-enabled');
+  return checkbox && checkbox.checked;
+}
+
+function toggleAIBoost() {
+  const checkbox = document.getElementById('ai-boost-enabled');
+  const status = checkbox.checked ? 'enabled' : 'disabled';
+  localStorage.setItem('ai-boost-enabled', checkbox.checked);
+
+  if (checkbox.checked) {
+    toast('🤖 AI Boost Mode enabled - Groq will help with complex commands', 'success');
+  } else {
+    toast('AI Boost Mode disabled - Using free client-side parsing', 'success');
+  }
+}
+
+// Fallback simple parser for single entries
+function parseSimpleVoiceCommand(transcript) {
   // Remove common filler words
   let cleaned = transcript
     .replace(/\b(um|uh|like|you know)\b/g, '')
@@ -405,59 +582,52 @@ function parseVoiceCommand(transcript) {
   // Find matching flavor
   const matchedFlavor = findFlavorByName(flavorName);
 
-  if (!matchedFlavor) {
-    showVoiceFeedback(`❌ Flavor "${flavorName}" not found. Try again.`, true, 'error');
-    return;
+  if (!matchedFlavor || !productType || !quantity) {
+    return null;
   }
 
-  if (!productType) {
-    showVoiceFeedback(`❌ Product type not detected. Say "tub", "pint", or "quart".`, true, 'error');
-    return;
-  }
-
-  if (!quantity) {
-    showVoiceFeedback(`❌ Quantity not detected. Say a number.`, true, 'error');
-    return;
-  }
-
-  // Apply the count
-  const key = `${matchedFlavor.id}-${productType}`;
-  const input = document.getElementById(`count-${key}`);
-
-  if (!input) {
-    showVoiceFeedback(`❌ ${matchedFlavor.name} ${productType} not in current view. Check filters.`, true, 'error');
-    return;
-  }
-
-  // Update the count
-  input.value = quantity;
-  countEdits[key] = quantity;
-  updatePartialToggle(key);
-  updateVarianceIndicator(key);
-
-  // Success feedback
-  showVoiceFeedback(`✅ ${matchedFlavor.name} ${productType}: ${quantity}`, true, 'success');
-
-  // Scroll to the updated field
-  input.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  input.classList.add('voice-updated');
-  setTimeout(() => input.classList.remove('voice-updated'), 1500);
+  // Return entry object
+  return {
+    flavor: matchedFlavor.name,
+    flavorId: matchedFlavor.id,
+    type: productType,
+    quantity: quantity,
+    action: 'set',
+    confidence: 1.0
+  };
 }
 
 function findFlavorByName(spokenName) {
   const normalized = spokenName.toLowerCase().trim();
+  console.log('🔍 findFlavorByName searching for:', normalized);
 
   // Try exact match first
   let match = flavors.find(f => f.name.toLowerCase() === normalized);
-  if (match) return match;
+  if (match) {
+    console.log('✅ Exact match found:', match.name);
+    return match;
+  }
 
-  // Try partial match (contains)
-  match = flavors.find(f => f.name.toLowerCase().includes(normalized));
-  if (match) return match;
+  // Try partial match (contains) - prefer longer matches
+  const partialMatches = flavors.filter(f => f.name.toLowerCase().includes(normalized));
+  if (partialMatches.length > 0) {
+    // Sort by name length (descending) to prefer more specific matches
+    partialMatches.sort((a, b) => b.name.length - a.name.length);
+    match = partialMatches[0];
+    console.log('✅ Partial match found:', match.name);
+    return match;
+  }
 
-  // Try reverse (spoken contains flavor name)
-  match = flavors.find(f => normalized.includes(f.name.toLowerCase()));
-  if (match) return match;
+  // Try reverse (spoken contains flavor name) - prefer LONGEST matches
+  // This prevents "Vanilla" from matching when "Black Cherry Vanilla" should match
+  const reverseMatches = flavors.filter(f => normalized.includes(f.name.toLowerCase()));
+  if (reverseMatches.length > 0) {
+    // Sort by name length (descending) to prefer longer/more specific matches
+    reverseMatches.sort((a, b) => b.name.length - a.name.length);
+    match = reverseMatches[0];
+    console.log('✅ Reverse match found (longest):', match.name);
+    return match;
+  }
 
   // Try fuzzy match (all words present)
   const spokenWords = normalized.split(/\s+/);
@@ -466,7 +636,1201 @@ function findFlavorByName(spokenName) {
     return flavorWords.every(fw => spokenWords.some(sw => sw.includes(fw) || fw.includes(sw)));
   });
 
+  if (match) {
+    console.log('✅ Fuzzy match found:', match.name);
+  } else {
+    console.log('❌ No match found for:', normalized);
+  }
+
   return match;
+}
+
+// ===== CONVERSATIONAL VOICE INPUT =====
+
+// Global state for voice confirmation
+let currentVoiceParseResult = null;
+let voiceHistory = []; // Track voice entry history for undo
+let voiceUndoStack = []; // Stack of changes for undo functionality
+
+function preprocessConversationalInput(transcript) {
+  let text = transcript.toLowerCase().trim();
+
+  // Remove conversational fillers
+  const fillers = [
+    'oh wait', 'oh and', 'wait a minute', 'hold on',
+    'let me', 'i need to', 'i want to', 'i found',
+    'um', 'uh', 'like', 'you know'
+  ];
+  fillers.forEach(filler => {
+    text = text.replace(new RegExp(`\\b${filler}\\b`, 'gi'), '');
+  });
+
+  // Normalize articles and conjunctions
+  text = text.replace(/\b(a|an|the)\b/gi, '');
+
+  // Detect action intent
+  const isAddAction = /\b(add|plus|also|another|found|more)\b/i.test(text);
+  const action = isAddAction ? 'add' : 'set';
+
+  // Remove action phrases
+  text = text.replace(/\b(to the count|to count)\b/gi, '');
+
+  return { text: text.trim(), action };
+}
+
+function isProductType(word) {
+  if (!word) return false;
+  return ['tub', 'tubs', 'pint', 'pints', 'quart', 'quarts'].includes(word.toLowerCase());
+}
+
+function isQuantityWord(word) {
+  if (!word) return false;
+  const numberWords = [
+    'zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten',
+    'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen',
+    'eighteen', 'nineteen', 'twenty', 'half', 'quarter', 'third', 'fourth'
+  ];
+  return numberWords.includes(word.toLowerCase());
+}
+
+function isDigit(word) {
+  if (!word) return false;
+  return !isNaN(parseFloat(word));
+}
+
+function extractEntrySegments(text) {
+  // Split on "and" when next word is likely a new entry
+  const words = text.split(/\s+/);
+  const segments = [];
+  let current = [];
+
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i];
+    const next = words[i + 1];
+
+    if (word === 'and') {
+      // Check if next word starts a new entry (is a type or quantity)
+      if (isProductType(next) || isQuantityWord(next) || isDigit(next)) {
+        // New entry starts
+        if (current.length > 0) {
+          segments.push(current.join(' '));
+        }
+        current = [];
+      } else {
+        // Part of compound flavor list
+        current.push(word);
+      }
+    } else {
+      current.push(word);
+    }
+  }
+
+  if (current.length > 0) {
+    segments.push(current.join(' '));
+  }
+
+  return segments.filter(s => s.trim().length > 0);
+}
+
+function extractQuantity(segment) {
+  const words = segment.split(/\s+/);
+  console.log('🔍 extractQuantity from:', segment);
+
+  const numberWords = {
+    'zero': 0, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+    'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10,
+    'eleven': 11, 'twelve': 12, 'thirteen': 13, 'fourteen': 14, 'fifteen': 15,
+    'sixteen': 16, 'seventeen': 17, 'eighteen': 18, 'nineteen': 19, 'twenty': 20,
+    'half': 0.5, 'quarter': 0.25, 'third': 0.33
+  };
+
+  // Check for patterns like "two and half" or "seven and quarter"
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i].toLowerCase();
+
+    // Check for "X and half/quarter" pattern
+    if (numberWords[word] !== undefined && i + 2 < words.length) {
+      if (words[i + 1] === 'and' && (words[i + 2] === 'half' || words[i + 2] === 'quarter')) {
+        const qty = numberWords[word] + (words[i + 2] === 'half' ? 0.5 : 0.25);
+        console.log('✅ Found quantity (word + fraction):', qty);
+        return qty;
+      }
+    }
+
+    // Check for standalone number word
+    if (numberWords[word] !== undefined && numberWords[word] >= 1) {
+      console.log('✅ Found quantity (word):', numberWords[word]);
+      return numberWords[word];
+    }
+
+    // Check for digit (including decimals like 2.5)
+    const num = parseFloat(word);
+    if (!isNaN(num) && num > 0) {
+      console.log('✅ Found quantity (digit):', num);
+      return num;
+    }
+  }
+
+  console.log('⚠️ No quantity found, defaulting to 1');
+  return null;
+}
+
+function extractProductType(segment) {
+  const words = segment.split(/\s+/);
+
+  for (let word of words) {
+    word = word.toLowerCase();
+    if (word.startsWith('tub')) return 'tub';
+    if (word.startsWith('pint')) return 'pint';
+    if (word.startsWith('quart')) return 'quart';
+  }
+
+  return null;
+}
+
+function extractFlavorText(segment, quantity, type) {
+  let text = segment;
+  console.log('🔍 extractFlavorText input:', segment);
+
+  // Remove quantity words (but NOT "and" - that's for compound flavors)
+  if (quantity) {
+    const numberWords = [
+      'zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten',
+      'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen',
+      'eighteen', 'nineteen', 'twenty', 'half', 'quarter', 'third'
+      // NOTE: Removed 'and' from here - we need it for "vanilla and chocolate"
+    ];
+    numberWords.forEach(word => {
+      text = text.replace(new RegExp(`\\b${word}\\b`, 'gi'), '');
+    });
+    // Also remove digit
+    text = text.replace(/\b\d+(\.\d+)?\b/g, '');
+  }
+
+  // Remove type words
+  if (type) {
+    text = text.replace(/\b(tub|tubs|pint|pints|quart|quarts)\b/gi, '');
+  }
+
+  // Remove "of"
+  text = text.replace(/\bof\b/gi, '');
+
+  const result = text.trim();
+  console.log('🔍 extractFlavorText output:', result);
+  return result;
+}
+
+function parseFlavorList(text) {
+  // Split "vanilla and chocolate" into ["vanilla", "chocolate"]
+  // But keep "black cherry vanilla" as one (only split on " and " with spaces)
+  const parts = text.split(/\s+and\s+/).map(f => f.trim()).filter(f => f.length > 0);
+  console.log('🔍 parseFlavorList input:', text, '→ output:', parts);
+  return parts;
+}
+
+function calculateMatchConfidence(spokenName, matchedFlavor) {
+  const normalized = spokenName.toLowerCase().trim();
+  const flavorName = matchedFlavor.name.toLowerCase();
+
+  // Exact match = 1.0
+  if (normalized === flavorName) return 1.0;
+
+  // Contains match = 0.8
+  if (flavorName.includes(normalized) || normalized.includes(flavorName)) return 0.8;
+
+  // Fuzzy match = 0.6
+  return 0.6;
+}
+
+function calculateConfidence(entries) {
+  if (entries.length === 0) return 0;
+
+  const sum = entries.reduce((acc, entry) => acc + (entry.confidence || 0.5), 0);
+  return sum / entries.length;
+}
+
+function parseSegment(segment, defaultAction) {
+  const quantity = extractQuantity(segment) || 1;
+  const type = extractProductType(segment);
+  const flavorText = extractFlavorText(segment, quantity, type);
+
+  if (!type) return null;
+
+  // Check for compound flavors: "vanilla and chocolate"
+  const flavors = parseFlavorList(flavorText);
+
+  // Create entry for each flavor
+  return flavors.map(flavorName => {
+    const matchedFlavor = findFlavorByName(flavorName);
+    if (!matchedFlavor) return null;
+
+    return {
+      flavor: matchedFlavor.name,
+      flavorId: matchedFlavor.id,
+      type,
+      quantity,
+      action: defaultAction,
+      confidence: calculateMatchConfidence(flavorName, matchedFlavor)
+    };
+  }).filter(e => e !== null);
+}
+
+function parseConversationalInput(transcript) {
+  const { text, action } = preprocessConversationalInput(transcript);
+  const entries = [];
+
+  console.log('🔍 PREPROCESSED TEXT:', text);
+  console.log('🎯 ACTION:', action);
+
+  // Check for shared context pattern: "these are all tubs: vanilla, chocolate, strawberry"
+  const sharedContextMatch = text.match(/(?:these are |all |they're all |i (?:made|want to add|want to make|made) )?(all )?(tubs?|pints?|quarts?)(?:[:\s,]+|(?:\s+i'?m?\s+(?:gonna|going to)\s+list\s+off:?\s*))(.*)/i);
+
+  console.log('🔎 SHARED CONTEXT MATCH:', sharedContextMatch);
+
+  if (sharedContextMatch) {
+    const sharedType = normalizeProductType(sharedContextMatch[2]);
+    const flavorList = sharedContextMatch[3];
+
+    // Split by commas and "and"
+    const flavors = flavorList
+      .split(/,|\band\b/)
+      .map(f => f.trim())
+      .filter(f => f.length > 0);
+
+    // Default quantity is 1 for each
+    for (const flavorText of flavors) {
+      // Check if this flavor has a quantity prefix (e.g., "2 vanilla", "three chocolate")
+      const qtyMatch = flavorText.match(/^(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(.+)/i);
+      let quantity = 1;
+      let flavorName = flavorText;
+
+      if (qtyMatch) {
+        quantity = parseNumberWord(qtyMatch[1]) || 1;
+        flavorName = qtyMatch[2];
+      }
+
+      const matchedFlavor = findFlavorByName(flavorName);
+      if (matchedFlavor) {
+        entries.push({
+          flavor: matchedFlavor.name,
+          flavorId: matchedFlavor.id,
+          type: sharedType,
+          quantity: quantity,
+          action: action,
+          confidence: calculateMatchConfidence(flavorName, matchedFlavor)
+        });
+      }
+    }
+
+    if (entries.length > 0) {
+      return {
+        entries,
+        rawTranscript: transcript,
+        success: true,
+        confidence: calculateConfidence(entries)
+      };
+    }
+  }
+
+  // Fall back to original segmented parsing
+  const segments = extractEntrySegments(text);
+
+  for (const segment of segments) {
+    const parsed = parseSegment(segment, action);
+    if (parsed) {
+      entries.push(...parsed);
+    }
+  }
+
+  return {
+    entries,
+    rawTranscript: transcript,
+    success: entries.length > 0,
+    confidence: calculateConfidence(entries)
+  };
+}
+
+function normalizeProductType(type) {
+  const t = type.toLowerCase();
+  if (t.startsWith('tub')) return 'tub';
+  if (t.startsWith('pint')) return 'pint';
+  if (t.startsWith('quart')) return 'quart';
+  return 'tub'; // default
+}
+
+function parseNumberWord(word) {
+  const numberWords = {
+    'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+    'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10,
+    'eleven': 11, 'twelve': 12, 'thirteen': 13, 'fourteen': 14, 'fifteen': 15,
+    'half': 0.5, 'quarter': 0.25
+  };
+
+  const normalized = word.toLowerCase().trim();
+
+  // Check for "two and a half" pattern
+  const andHalfMatch = normalized.match(/(\w+)\s+and\s+a\s+(half|quarter)/);
+  if (andHalfMatch) {
+    const base = numberWords[andHalfMatch[1]] || parseInt(andHalfMatch[1]);
+    const fraction = andHalfMatch[2] === 'half' ? 0.5 : 0.25;
+    return base + fraction;
+  }
+
+  // Check for number words
+  if (numberWords[normalized] !== undefined) {
+    return numberWords[normalized];
+  }
+
+  // Check for decimal numbers
+  const num = parseFloat(word);
+  if (!isNaN(num)) {
+    return num;
+  }
+
+  return null;
+}
+
+function applyVoiceEntries(entries) {
+  const updates = [];
+  const failures = [];
+  const undoData = []; // Track changes for undo
+
+  for (const entry of entries) {
+    const key = `${entry.flavorId}-${entry.type}`;
+    const input = document.getElementById(`count-${key}`);
+
+    if (!input) {
+      failures.push(`${entry.flavor} ${entry.type} not visible`);
+      continue;
+    }
+
+    // Save old value for undo
+    const oldValue = parseFloat(input.value) || 0;
+
+    let newValue;
+    if (entry.action === 'add') {
+      const current = parseFloat(input.value) || 0;
+      newValue = current + entry.quantity;
+    } else {
+      newValue = entry.quantity;
+    }
+
+    input.value = newValue;
+    countEdits[key] = newValue;
+    updatePartialToggle(key);
+    updateVarianceIndicator(key);
+
+    // Visual feedback
+    input.classList.add('voice-updated-batch');
+    input.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+    updates.push({
+      flavor: entry.flavor,
+      type: entry.type,
+      quantity: entry.quantity,
+      action: entry.action,
+      newValue
+    });
+
+    // Track for undo
+    undoData.push({
+      key,
+      oldValue,
+      newValue,
+      flavor: entry.flavor,
+      type: entry.type
+    });
+  }
+
+  // Save to undo stack
+  if (undoData.length > 0) {
+    voiceUndoStack.push(undoData);
+    // Keep only last 5 undo actions
+    if (voiceUndoStack.length > 5) {
+      voiceUndoStack.shift();
+    }
+  }
+
+  // Show batch feedback
+  if (updates.length > 0 || failures.length > 0) {
+    showBatchVoiceFeedback(updates, failures);
+
+    // Voice confirmation if enabled
+    if (updates.length > 0 && isVoiceConfirmationEnabled()) {
+      speakVoiceConfirmation(updates);
+    }
+  }
+
+  // Update running total
+  updateRunningTotal();
+
+  // Update uncounted highlights
+  updateUncountedhighlights();
+
+  // Clear animation after delay
+  setTimeout(() => {
+    document.querySelectorAll('.voice-updated-batch').forEach(el => {
+      el.classList.remove('voice-updated-batch');
+    });
+  }, 2000);
+
+  return { updates, failures };
+}
+
+function showBatchVoiceFeedback(updates, failures) {
+  const feedback = document.getElementById('voice-feedback');
+
+  let html = `<strong>✅ Applied ${updates.length} entries:</strong><br>`;
+  html += updates.map(u =>
+    `${esc(u.flavor)} ${u.type}: ${u.action === 'add' ? `+${u.quantity}` : u.quantity} → ${u.newValue}`
+  ).join('<br>');
+
+  if (failures.length > 0) {
+    html += `<br><strong style="color: var(--red)">⚠️ ${failures.length} failed:</strong><br>`;
+    html += failures.map(f => esc(f)).join('<br>');
+  }
+
+  feedback.innerHTML = html;
+  feedback.className = 'voice-feedback success';
+  feedback.classList.remove('hidden');
+}
+
+function showVoiceConfirmation(result) {
+  const modal = document.getElementById('voice-confirm-modal');
+  const tbody = modal.querySelector('#voice-entries-tbody');
+
+  tbody.innerHTML = result.entries.map((entry, idx) => `
+    <tr>
+      <td>${esc(entry.flavor)}</td>
+      <td>${entry.type}</td>
+      <td>${entry.quantity}</td>
+      <td>${entry.action === 'add' ? '+Add' : 'Set'}</td>
+      <td><button class="btn-small" onclick="removeVoiceEntry(${idx})">✕</button></td>
+    </tr>
+  `).join('');
+
+  modal.classList.remove('hidden');
+}
+
+function confirmVoiceEntries() {
+  const result = currentVoiceParseResult;
+  if (result && result.entries.length > 0) {
+    applyVoiceEntries(result.entries);
+  }
+  closeVoiceConfirmModal();
+}
+
+function closeVoiceConfirmModal() {
+  const modal = document.getElementById('voice-confirm-modal');
+  modal.classList.add('hidden');
+  currentVoiceParseResult = null;
+}
+
+function removeVoiceEntry(idx) {
+  if (currentVoiceParseResult && currentVoiceParseResult.entries[idx]) {
+    currentVoiceParseResult.entries.splice(idx, 1);
+    showVoiceConfirmation(currentVoiceParseResult);
+  }
+}
+
+// ===== VOICE ENHANCEMENTS =====
+
+// 1. UNDO FUNCTIONALITY
+function undoLastVoiceEntry() {
+  if (voiceUndoStack.length === 0) {
+    showVoiceFeedback('❌ Nothing to undo', true, 'error');
+    toast('No voice entries to undo', 'error');
+    return;
+  }
+
+  const lastChanges = voiceUndoStack.pop();
+  const reverted = [];
+
+  for (const change of lastChanges) {
+    const input = document.getElementById(`count-${change.key}`);
+    if (input) {
+      input.value = change.oldValue;
+      countEdits[change.key] = change.oldValue;
+      updatePartialToggle(change.key);
+      updateVarianceIndicator(change.key);
+
+      // Visual feedback
+      input.classList.add('voice-undo-highlight');
+      input.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+      reverted.push(`${change.flavor} ${change.type}: ${change.newValue} → ${change.oldValue}`);
+    }
+  }
+
+  showVoiceFeedback(`↩️ Undone: ${reverted.join(', ')}`, true, 'success');
+  toast(`Undid ${lastChanges.length} voice entries`, 'success');
+
+  // Update displays
+  updateRunningTotal();
+  updateUncountedhighlights();
+
+  // Clear animation
+  setTimeout(() => {
+    document.querySelectorAll('.voice-undo-highlight').forEach(el => {
+      el.classList.remove('voice-undo-highlight');
+    });
+  }, 2000);
+}
+
+// 2. VOICE CONFIRMATION READBACK
+function isVoiceConfirmationEnabled() {
+  const checkbox = document.getElementById('voice-readback-enabled');
+  return checkbox && checkbox.checked;
+}
+
+function speakVoiceConfirmation(updates) {
+  if (!window.speechSynthesis) return;
+
+  // Cancel any ongoing speech
+  window.speechSynthesis.cancel();
+
+  const count = updates.length;
+  let text = `I heard ${count} item${count !== 1 ? 's' : ''}: `;
+
+  const items = updates.map(u => {
+    const qty = u.action === 'add' ? `plus ${u.quantity}` : u.quantity;
+    return `${u.flavor} ${u.type} ${qty}`;
+  }).join(', ');
+
+  text += items;
+
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.rate = 1.1; // Slightly faster
+  utterance.pitch = 1.0;
+  utterance.volume = 0.8;
+
+  window.speechSynthesis.speak(utterance);
+}
+
+// 3. RUNNING TOTAL DISPLAY
+function updateRunningTotal() {
+  const totalDisplay = document.getElementById('count-running-total');
+  if (!totalDisplay) return;
+
+  // Count total visible inputs
+  const allInputs = document.querySelectorAll('[id^="count-"]');
+  const total = allInputs.length;
+
+  // Count how many have been edited (changed from default)
+  let counted = 0;
+  allInputs.forEach(input => {
+    const key = input.id.replace('count-', '');
+    if (countEdits[key] !== undefined) {
+      counted++;
+    }
+  });
+
+  const percentage = total > 0 ? Math.round((counted / total) * 100) : 0;
+  const isComplete = counted === total && total > 0;
+
+  totalDisplay.innerHTML = `
+    <div class="running-total-content ${isComplete ? 'complete' : ''}">
+      <div class="running-total-label">Count Progress</div>
+      <div class="running-total-numbers">
+        <span class="running-total-counted">${counted}</span>
+        <span class="running-total-separator">/</span>
+        <span class="running-total-total">${total}</span>
+      </div>
+      <div class="running-total-bar">
+        <div class="running-total-fill" style="width: ${percentage}%"></div>
+      </div>
+      <div class="running-total-percent">${percentage}% Complete</div>
+      ${isComplete ? '<div class="running-total-badge">✓ All Items Counted</div>' : ''}
+    </div>
+  `;
+}
+
+// 4. HIGHLIGHT UNCOUNTED ITEMS
+function updateUncountedhighlights() {
+  const allRows = document.querySelectorAll('.count-row');
+
+  allRows.forEach(row => {
+    const input = row.querySelector('[id^="count-"]');
+    if (!input) return;
+
+    const key = input.id.replace('count-', '');
+    const hasBeenCounted = countEdits[key] !== undefined;
+
+    if (hasBeenCounted) {
+      row.classList.add('counted');
+      row.classList.remove('uncounted');
+
+      // Add checkmark badge if not already present
+      if (!row.querySelector('.counted-badge')) {
+        const badge = document.createElement('div');
+        badge.className = 'counted-badge';
+        badge.innerHTML = '✓';
+        row.querySelector('.count-flavor').appendChild(badge);
+      }
+    } else {
+      row.classList.remove('counted');
+      row.classList.add('uncounted');
+
+      // Remove checkmark if present
+      const badge = row.querySelector('.counted-badge');
+      if (badge) badge.remove();
+    }
+  });
+}
+
+function toggleVoiceReadback() {
+  const checkbox = document.getElementById('voice-readback-enabled');
+  const status = checkbox.checked ? 'enabled' : 'disabled';
+  localStorage.setItem('voice-readback-enabled', checkbox.checked);
+  toast(`Voice readback ${status}`, 'success');
+}
+
+// ===== PRODUCTION VOICE INPUT =====
+
+let productionVoiceRecognition = null;
+let isProductionVoiceActive = false;
+let currentProductionVoiceResult = null;
+
+function toggleProductionVoiceInput() {
+  if (!productionVoiceRecognition) {
+    productionVoiceRecognition = initProductionVoiceRecognition();
+    if (!productionVoiceRecognition) {
+      toast('Voice input not supported in this browser. Try Chrome or Edge.', 'error');
+      return;
+    }
+  }
+
+  if (isProductionVoiceActive) {
+    stopProductionVoiceInput();
+  } else {
+    startProductionVoiceInput();
+  }
+}
+
+function initProductionVoiceRecognition() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  if (!SpeechRecognition) {
+    console.warn('Speech recognition not supported in this browser');
+    return null;
+  }
+
+  const recognition = new SpeechRecognition();
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.lang = 'en-US';
+
+  recognition.onresult = (event) => {
+    const last = event.results.length - 1;
+    const transcript = event.results[last][0].transcript.toLowerCase().trim();
+    const isFinal = event.results[last].isFinal;
+
+    showProductionVoiceFeedback(transcript, isFinal);
+
+    if (isFinal) {
+      parseProductionVoiceCommand(transcript);
+    }
+  };
+
+  recognition.onerror = (event) => {
+    console.error('Speech recognition error:', event.error);
+    if (event.error === 'no-speech') {
+      showProductionVoiceFeedback('No speech detected. Try again.', true, 'error');
+    } else if (event.error === 'not-allowed') {
+      showProductionVoiceFeedback('Microphone access denied.', true, 'error');
+      stopProductionVoiceInput();
+    } else {
+      showProductionVoiceFeedback(`Error: ${event.error}`, true, 'error');
+    }
+  };
+
+  recognition.onend = () => {
+    if (isProductionVoiceActive) {
+      recognition.start();
+    }
+  };
+
+  return recognition;
+}
+
+function startProductionVoiceInput() {
+  isProductionVoiceActive = true;
+  const btn = document.getElementById('prod-voice-input-btn');
+  btn.classList.add('voice-active');
+  btn.innerHTML = '<span class="voice-icon">🔴</span> Listening...';
+
+  showProductionVoiceFeedback('Listening... Say: "I made tubs: vanilla, chocolate, strawberry" or "5 tubs of vanilla"', false);
+
+  try {
+    productionVoiceRecognition.start();
+  } catch (e) {
+    console.error('Failed to start voice recognition:', e);
+  }
+}
+
+function stopProductionVoiceInput() {
+  isProductionVoiceActive = false;
+  const btn = document.getElementById('prod-voice-input-btn');
+  btn.classList.remove('voice-active');
+  btn.innerHTML = '<span class="voice-icon">🎤</span> Voice Input';
+
+  if (productionVoiceRecognition) {
+    productionVoiceRecognition.stop();
+  }
+
+  setTimeout(() => {
+    const feedback = document.getElementById('prod-voice-feedback');
+    feedback.classList.add('hidden');
+  }, 2000);
+}
+
+function showProductionVoiceFeedback(text, isFinal, type = 'info') {
+  const feedback = document.getElementById('prod-voice-feedback');
+  feedback.classList.remove('hidden');
+  feedback.className = `voice-feedback ${type}`;
+
+  if (isFinal) {
+    feedback.innerHTML = `<strong>Heard:</strong> "${esc(text)}"`;
+  } else {
+    feedback.innerHTML = `<span class="voice-interim">${esc(text)}...</span>`;
+  }
+}
+
+async function parseProductionVoiceCommand(transcript) {
+  // Check for submit/commit command
+  if (/\b(done log production|commit|submit|done)\b/i.test(transcript)) {
+    showProductionVoiceFeedback('✅ Submitting production...', false, 'info');
+    // Trigger the submit button click
+    const submitBtn = document.getElementById('prod-submit-btn');
+    if (submitBtn && !submitBtn.disabled) {
+      submitBtn.click();
+    } else {
+      showProductionVoiceFeedback('❌ Cannot submit - enter your name and add at least one item', true, 'error');
+    }
+    return;
+  }
+
+  // Check for stop/turn off voice command
+  if (/\b(stop|stop listening|turn off voice|voice off|stop voice|cancel)\b/i.test(transcript)) {
+    stopProductionVoiceInput();
+    showProductionVoiceFeedback('✅ Voice input turned off', true, 'success');
+    return;
+  }
+
+  // Check for undo command
+  if (/\b(undo|undo last|cancel last)\b/i.test(transcript)) {
+    undoLastProductionVoiceEntry();
+    return;
+  }
+
+  // Parse conversational input for production
+  const result = parseConversationalInput(transcript);
+
+  console.log('📊 PRODUCTION PARSED RESULT:', result);
+  console.log(`   - Entries found: ${result.entries.length}`);
+
+  if (result.success && result.confidence > 0.7) {
+    // High confidence - apply to list-based UI directly
+    applyProductionVoiceEntries(result.entries);
+  } else if (result.success && result.confidence > 0.4) {
+    // Medium confidence - try AI boost if enabled
+    if (isProductionAIBoostEnabled()) {
+      await tryProductionAIBoostParse(transcript, result);
+    } else {
+      applyProductionVoiceEntries(result.entries);
+      toast('Low confidence - please verify entries', 'warning');
+    }
+  } else {
+    // Low confidence - try AI boost if enabled
+    if (isProductionAIBoostEnabled()) {
+      await tryProductionAIBoostParse(transcript, null);
+    } else {
+      showProductionVoiceFeedback('❌ Could not parse. Try: "I made 5 tubs of vanilla"', true, 'error');
+    }
+  }
+}
+
+async function tryProductionAIBoostParse(transcript, fallbackResult) {
+  showProductionVoiceFeedback('🤖 AI Boost processing...', false, 'info');
+
+  try {
+    const aiResult = await parseVoiceCommandWithGroq(transcript);
+
+    if (aiResult.success && aiResult.entries.length > 0) {
+      // AI succeeded - apply to list-based UI
+      applyProductionVoiceEntries(aiResult.entries);
+      toast('🤖 AI Boost parsed successfully', 'success');
+    } else if (fallbackResult && fallbackResult.entries.length > 0) {
+      // AI failed, use fallback
+      applyProductionVoiceEntries(fallbackResult.entries);
+      toast('Using standard parser (AI boost unclear)', 'warning');
+    } else {
+      showProductionVoiceFeedback(`❌ Could not parse even with AI Boost.`, true, 'error');
+    }
+  } catch (error) {
+    console.error('AI Boost error:', error);
+    if (fallbackResult && fallbackResult.entries.length > 0) {
+      applyProductionVoiceEntries(fallbackResult.entries);
+      toast('AI Boost failed, using standard parser', 'warning');
+    } else {
+      showProductionVoiceFeedback(`❌ AI Boost error`, true, 'error');
+    }
+  }
+}
+
+function isProductionAIBoostEnabled() {
+  const checkbox = document.getElementById('prod-ai-boost-enabled');
+  return checkbox && checkbox.checked;
+}
+
+function toggleProductionAIBoost() {
+  const checkbox = document.getElementById('prod-ai-boost-enabled');
+  const status = checkbox.checked ? 'enabled' : 'disabled';
+  localStorage.setItem('prod-ai-boost-enabled', checkbox.checked);
+
+  if (checkbox.checked) {
+    toast('🤖 Production AI Boost enabled', 'success');
+  } else {
+    toast('Production AI Boost disabled', 'success');
+  }
+}
+
+// ===== PRODUCTION FRACTIONAL SUPPORT =====
+
+function setProductionPartial(frac) {
+  const input = document.getElementById('prod-qty');
+  if (!input) return;
+
+  const current = parseFloat(input.value) || 0;
+  const whole = Math.floor(current);
+  const newValue = whole + frac;
+
+  input.value = newValue;
+
+  // Update active button
+  const partialToggle = document.getElementById('prod-partial-toggle');
+  if (partialToggle) {
+    partialToggle.querySelectorAll('.partial-btn').forEach(btn => {
+      btn.classList.toggle('active', parseFloat(btn.dataset.frac) === frac);
+    });
+  }
+}
+
+function adjustProductionQty(delta) {
+  const input = document.getElementById('prod-qty');
+  const typeInput = document.getElementById('prod-type');
+  if (!input) return;
+
+  const isTub = typeInput && typeInput.value === 'tub';
+  const step = isTub ? 0.25 : 1;
+  const current = parseFloat(input.value) || 0;
+  const newValue = Math.max(0, current + (delta * step));
+
+  input.value = newValue;
+
+  // Update partial toggle if tubs
+  if (isTub) {
+    updateProductionPartialToggleButtons();
+  }
+}
+
+function updateProductionPartialToggleButtons() {
+  const input = document.getElementById('prod-qty');
+  const partialToggle = document.getElementById('prod-partial-toggle');
+
+  if (!input || !partialToggle) return;
+
+  const value = parseFloat(input.value) || 0;
+  const frac = Math.round((value - Math.floor(value)) * 100) / 100;
+
+  partialToggle.querySelectorAll('.partial-btn').forEach(btn => {
+    const btnFrac = parseFloat(btn.dataset.frac);
+    btn.classList.toggle('active', Math.abs(btnFrac - frac) < 0.01);
+  });
+}
+
+// ===== PRODUCTION FORM LOCK =====
+
+function isProductionEmployeeNameEntered() {
+  const prodEmployeeInput = document.getElementById('prod-employee-name');
+  const employeeName = prodEmployeeInput?.value?.trim();
+  return employeeName && employeeName.length >= 2;
+}
+
+function updateProductionFormLock() {
+  const isLocked = !isProductionEmployeeNameEntered();
+  const employeeWrap = document.getElementById('prod-employee-wrap');
+  const voiceBtn = document.getElementById('prod-voice-input-btn');
+
+  // Re-render form to update locked state
+  renderProductionForm();
+
+  // Update employee input wrap styling
+  if (employeeWrap) {
+    if (isLocked) {
+      employeeWrap.classList.add('required');
+    } else {
+      employeeWrap.classList.remove('required');
+    }
+  }
+
+  // Update voice button
+  if (voiceBtn) {
+    voiceBtn.disabled = isLocked;
+  }
+
+  // Submit button state is handled by updateProductionSubmitButtonState in renderProductionForm
+}
+
+// NEW: Apply multiple production voice entries to list-based UI
+function applyProductionVoiceEntries(entries) {
+  const updates = [];
+  const failures = [];
+  const undoData = [];
+
+  for (const entry of entries) {
+    const key = `${entry.flavorId}-${entry.type}`;
+    const input = document.getElementById(`prod-${key}`);
+
+    if (!input) {
+      failures.push(`${entry.flavor} ${entry.type} not visible`);
+      continue;
+    }
+
+    // Save old value for undo
+    const oldValue = parseFloat(input.value) || 0;
+
+    let newValue;
+    if (entry.action === 'add') {
+      newValue = oldValue + entry.quantity;
+    } else {
+      newValue = entry.quantity;
+    }
+
+    input.value = newValue;
+    productionEdits[key] = newValue;
+    updateProductionPartialToggleUI(key);
+
+    // Visual feedback
+    input.classList.add('voice-updated-batch');
+    input.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+    updates.push({
+      flavor: entry.flavor,
+      type: entry.type,
+      quantity: entry.quantity,
+      action: entry.action,
+      newValue
+    });
+
+    undoData.push({
+      key,
+      oldValue,
+      newValue,
+      flavor: entry.flavor,
+      type: entry.type
+    });
+  }
+
+  // Save to undo stack
+  if (undoData.length > 0) {
+    productionVoiceUndoStack.push(undoData);
+    if (productionVoiceUndoStack.length > 5) {
+      productionVoiceUndoStack.shift();
+    }
+  }
+
+  // Show batch feedback
+  if (updates.length > 0 || failures.length > 0) {
+    showProductionBatchVoiceFeedback(updates, failures);
+
+    // Voice confirmation if enabled
+    if (updates.length > 0 && isProductionVoiceReadbackEnabled()) {
+      speakProductionVoiceConfirmation(updates);
+    }
+  }
+
+  // Update submit button state
+  updateProductionSubmitButtonState();
+
+  // Clear animation after delay
+  setTimeout(() => {
+    document.querySelectorAll('.voice-updated-batch').forEach(el => {
+      el.classList.remove('voice-updated-batch');
+    });
+  }, 2000);
+
+  return { updates, failures };
+}
+
+function showProductionBatchVoiceFeedback(updates, failures) {
+  const feedback = document.getElementById('prod-voice-feedback');
+
+  let html = `<strong>✅ Applied ${updates.length} entries:</strong><br>`;
+  html += updates.map(u =>
+    `${esc(u.flavor)} ${u.type}: ${u.action === 'add' ? `+${u.quantity}` : u.quantity} → ${u.newValue}`
+  ).join('<br>');
+
+  if (failures.length > 0) {
+    html += `<br><strong style="color: var(--red)">⚠️ ${failures.length} failed:</strong><br>`;
+    html += failures.map(f => esc(f)).join('<br>');
+  }
+
+  feedback.innerHTML = html;
+  feedback.className = 'prod-voice-feedback success';
+  feedback.classList.remove('hidden');
+}
+
+function speakProductionVoiceConfirmation(updates) {
+  if (!('speechSynthesis' in window)) return;
+
+  const itemsText = updates.length === 1
+    ? `${updates[0].quantity} ${updates[0].type} of ${updates[0].flavor}`
+    : `${updates.length} production entries`;
+
+  const utterance = new SpeechSynthesisUtterance(`Updated ${itemsText}`);
+  utterance.rate = 1.2;
+  utterance.pitch = 1.0;
+  utterance.volume = 0.8;
+
+  window.speechSynthesis.speak(utterance);
+}
+
+function undoLastProductionVoiceEntry() {
+  if (productionVoiceUndoStack.length === 0) {
+    showProductionVoiceFeedback('⚠️ No voice changes to undo', true, 'warning');
+    return;
+  }
+
+  const lastChange = productionVoiceUndoStack.pop();
+
+  // Revert changes
+  for (const change of lastChange) {
+    const input = document.getElementById(`prod-${change.key}`);
+    if (input) {
+      input.value = change.oldValue;
+      productionEdits[change.key] = change.oldValue;
+      updateProductionPartialToggleUI(change.key);
+    }
+  }
+
+  updateProductionSubmitButtonState();
+
+  const itemsText = lastChange.length === 1
+    ? `${lastChange[0].flavor} ${lastChange[0].type}`
+    : `${lastChange.length} entries`;
+
+  showProductionVoiceFeedback(`↩️ Undid ${itemsText}`, true, 'info');
+}
+
+// OLD: Single-entry voice function (kept for backwards compatibility, but not used with list UI)
+function applyProductionVoiceEntry(entry) {
+  // This is now only used if the list-based UI is not rendered
+  // In practice, we'll always use applyProductionVoiceEntries with the list UI
+  console.warn('applyProductionVoiceEntry called - this should not happen with list UI');
+}
+
+function showProductionVoiceBatchModal(result) {
+  const modal = document.getElementById('prod-voice-batch-modal');
+  const tbody = modal.querySelector('#prod-voice-entries-tbody');
+
+  tbody.innerHTML = result.entries.map((entry, idx) => `
+    <tr>
+      <td>${esc(entry.flavor)}</td>
+      <td>${entry.type}</td>
+      <td>${entry.quantity}</td>
+      <td><button class="btn-small" onclick="removeProductionVoiceEntry(${idx})">✕</button></td>
+    </tr>
+  `).join('');
+
+  modal.classList.remove('hidden');
+}
+
+async function confirmProductionVoiceBatch() {
+  const result = currentProductionVoiceResult;
+  if (!result || !result.entries.length) return;
+
+  const employeeName = document.getElementById('prod-employee-name').value.trim();
+  if (!employeeName) {
+    toast('Please enter your name first', 'error');
+    closeProductionVoiceBatchModal();
+    document.getElementById('prod-employee-name').focus();
+    return;
+  }
+
+  // Submit all entries
+  let successCount = 0;
+  for (const entry of result.entries) {
+    try {
+      await api('/api/production', {
+        method: 'POST',
+        body: JSON.stringify({
+          flavor_id: entry.flavorId,
+          product_type: entry.type,
+          quantity: entry.quantity,
+          employee_name: employeeName
+        })
+      });
+      successCount++;
+    } catch (e) {
+      console.error('Failed to log production:', e);
+    }
+  }
+
+  closeProductionVoiceBatchModal();
+  toast(`Logged ${successCount} production entries!`, 'success');
+  loadProductionHistory();
+
+  // Voice confirmation
+  if (isProductionVoiceReadbackEnabled()) {
+    speakBatchConfirmation(successCount);
+  }
+}
+
+function closeProductionVoiceBatchModal() {
+  document.getElementById('prod-voice-batch-modal').classList.add('hidden');
+  currentProductionVoiceResult = null;
+}
+
+function removeProductionVoiceEntry(idx) {
+  if (currentProductionVoiceResult && currentProductionVoiceResult.entries[idx]) {
+    currentProductionVoiceResult.entries.splice(idx, 1);
+    showProductionVoiceBatchModal(currentProductionVoiceResult);
+  }
+}
+
+function isProductionVoiceReadbackEnabled() {
+  const checkbox = document.getElementById('prod-voice-readback-enabled');
+  return checkbox && checkbox.checked;
+}
+
+function speakProductionConfirmation(entry) {
+  if (!window.speechSynthesis) return;
+  window.speechSynthesis.cancel();
+
+  const text = `Ready to log ${entry.quantity} ${entry.type}${entry.quantity !== 1 ? 's' : ''} of ${entry.flavor}`;
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.rate = 1.1;
+  utterance.volume = 0.8;
+  window.speechSynthesis.speak(utterance);
+}
+
+function speakBatchConfirmation(count) {
+  if (!window.speechSynthesis) return;
+  window.speechSynthesis.cancel();
+
+  const text = `Logged ${count} production entr${count !== 1 ? 'ies' : 'y'}`;
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.rate = 1.1;
+  utterance.volume = 0.8;
+  window.speechSynthesis.speak(utterance);
+}
+
+function toggleProductionVoiceReadback() {
+  const checkbox = document.getElementById('prod-voice-readback-enabled');
+  const status = checkbox.checked ? 'enabled' : 'disabled';
+  localStorage.setItem('prod-voice-readback-enabled', checkbox.checked);
+  toast(`Production voice readback ${status}`, 'success');
 }
 
 function adjustCountQty(key, delta) {
@@ -605,7 +1969,9 @@ async function loadFlavors() {
 }
 
 function populateFlavorDropdowns() {
-  const selects = [document.getElementById('prod-flavor')];
+  // Note: Production now uses list-based UI, so no dropdowns needed
+  // This function is kept for potential future use
+  const selects = [];
   selects.forEach(sel => {
     if (!sel) return;
     sel.innerHTML = '';
@@ -626,7 +1992,7 @@ function populateFlavorDropdowns() {
 
 function populateCategoryFilters() {
   const cats = [...new Set(flavors.map(f => f.category))].sort();
-  ['inv-category-filter', 'count-category-filter'].forEach(id => {
+  ['inv-category-filter', 'count-category-filter', 'prod-category-filter'].forEach(id => {
     const sel = document.getElementById(id);
     if (!sel) return;
     const current = sel.value;
@@ -855,36 +2221,12 @@ async function saveParLevels() {
 }
 
 // ===== PRODUCTION =====
+// Old submitProduction function - replaced by submitProductionBatch for list-based UI
+// Kept as reference in case single-entry mode is needed in the future
 async function submitProduction(e) {
+  console.warn('Old submitProduction called - this should use submitProductionBatch with list UI');
   e.preventDefault();
-  const employee_name = document.getElementById('prod-employee-name').value.trim();
-  const flavor_id = parseInt(document.getElementById('prod-flavor').value);
-  const product_type = document.getElementById('prod-type').value;
-  const quantity = parseInt(document.getElementById('prod-qty').value);
-
-  if (!employee_name) {
-    toast('Please enter your name or initials', 'error');
-    document.getElementById('prod-employee-name').focus();
-    return;
-  }
-  if (!flavor_id || !quantity) return;
-
-  try {
-    await api('/api/production', {
-      method: 'POST',
-      body: JSON.stringify({ flavor_id, product_type, quantity, employee_name }),
-    });
-    const flavorName = flavors.find(f => f.id === flavor_id)?.name || '';
-    toast(`Logged ${quantity} ${product_type}(s) of ${flavorName}`);
-
-    // Save employee name for next time
-    localStorage.setItem('employee-name', employee_name);
-
-    document.getElementById('prod-qty').value = '1';
-    loadProductionHistory();
-  } catch (e) {
-    toast(e.message, 'error');
-  }
+  toast('Please use the list-based production form', 'info');
 }
 
 async function loadProductionHistory() {
@@ -914,14 +2256,318 @@ async function loadProductionHistory() {
 }
 
 async function deleteProduction(id) {
-  if (!confirm('Delete this production entry?')) return;
+  // Get employee name
+  const prodEmployeeInput = document.getElementById('prod-employee-name');
+  const employeeName = prodEmployeeInput?.value?.trim();
+
+  if (!employeeName) {
+    toast('Please enter your name before deleting entries', 'error');
+    prodEmployeeInput?.focus();
+    return;
+  }
+
+  if (!confirm(`Delete this production entry?\n\nDeleted by: ${employeeName}\nThis will be recorded.`)) return;
+
   try {
-    await api(`/api/production/${id}`, { method: 'DELETE' });
-    toast('Entry deleted');
+    await api(`/api/production/${id}?employee_name=${encodeURIComponent(employeeName)}`, { method: 'DELETE' });
+    toast(`Entry deleted by ${employeeName}`, 'success');
     loadProductionHistory();
   } catch (e) {
     toast(e.message, 'error');
   }
+}
+
+// ===== PRODUCTION LIST-BASED UI =====
+async function loadProductionDefaults() {
+  try {
+    // Get all active flavors
+    const activeFlavors = flavors.filter(f => f.active);
+
+    // Get par levels to determine which combinations to show
+    const parData = await api('/api/flavors/par-levels');
+
+    const productionItems = [];
+
+    activeFlavors.forEach(flavor => {
+      ['tub', 'pint', 'quart'].forEach(type => {
+        // Only include if par level exists and target > 0
+        const par = parData.find(p => p.flavor_id === flavor.id && p.product_type === type);
+        if (par && par.target > 0) {
+          productionItems.push({
+            flavor_id: flavor.id,
+            flavor_name: flavor.name,
+            category: flavor.category,
+            product_type: type,
+            quantity: 0  // Default to 0 for production
+          });
+        }
+      });
+    });
+
+    productionDefaults = productionItems;
+    productionEdits = {};  // Reset edits
+    renderProductionForm();
+  } catch (e) {
+    console.error('Failed to load production defaults:', e);
+  }
+}
+
+function renderProductionForm() {
+  const wrap = document.getElementById('production-form-wrap');
+  const catFilter = document.getElementById('prod-category-filter').value;
+  const typeFilter = document.getElementById('prod-type-filter').value;
+
+  let filtered = productionDefaults;
+  if (catFilter !== 'all') filtered = filtered.filter(d => d.category === catFilter);
+  if (typeFilter !== 'all') filtered = filtered.filter(d => d.product_type === typeFilter);
+
+  // Group by flavor
+  const byFlavor = {};
+  filtered.forEach(d => {
+    if (!byFlavor[d.flavor_id]) {
+      byFlavor[d.flavor_id] = { name: d.flavor_name, category: d.category, types: [] };
+    }
+    byFlavor[d.flavor_id].types.push(d);
+  });
+
+  // Group by category
+  const byCat = {};
+  Object.values(byFlavor).forEach(f => {
+    if (!byCat[f.category]) byCat[f.category] = [];
+    byCat[f.category].push(f);
+  });
+
+  // Check if inputs should be locked
+  const isLocked = !isProductionEmployeeNameEntered();
+  const lockedClass = isLocked ? ' prod-inputs-locked' : '';
+
+  let html = '';
+
+  if (isLocked) {
+    html += `<div class="prod-form-locked-message">Enter your name/initials above to start logging</div>`;
+  }
+
+  for (const [cat, items] of Object.entries(byCat)) {
+    html += `<div class="prod-group${lockedClass}">`;
+    html += `<div class="prod-group-header">${esc(cat)}</div>`;
+    items.forEach(flavor => {
+      flavor.types.forEach(d => {
+        const key = `${d.flavor_id}-${d.product_type}`;
+        const val = productionEdits[key] || 0;
+        const isTub = d.product_type === 'tub';
+        const frac = isTub ? Math.round((val - Math.floor(val)) * 100) / 100 : 0;
+
+        html += `
+          <div class="prod-row${isTub ? ' prod-row-tub' : ''}">
+            <div class="prod-flavor">
+              <div class="prod-flavor-name">${esc(d.flavor_name)}</div>
+              <div class="prod-flavor-type">${d.product_type}</div>
+            </div>
+            <div class="prod-input-wrap">
+              <div class="prod-controls">
+                <button class="qty-btn" type="button" onclick="adjustProductionListQty('${key}', -1)">&#8722;</button>
+                <input type="number" id="prod-${key}" value="${val}" min="0" step="${isTub ? '0.25' : '1'}"
+                       onchange="productionEdits['${key}']=${isTub ? 'parseFloat' : 'parseInt'}(this.value)||0; updateProductionPartialToggleUI('${key}'); updateProductionSubmitButtonState()">
+                <button class="qty-btn" type="button" onclick="adjustProductionListQty('${key}', 1)">+</button>
+              </div>
+              ${isTub ? `
+              <div class="partial-toggle" id="prod-partial-${key}">
+                <button type="button" class="partial-btn${frac === 0 ? ' active' : ''}" onclick="setProductionListPartial('${key}', 0)">0</button>
+                <button type="button" class="partial-btn${frac === 0.25 ? ' active' : ''}" onclick="setProductionListPartial('${key}', 0.25)">\u00BC</button>
+                <button type="button" class="partial-btn${frac === 0.5 ? ' active' : ''}" onclick="setProductionListPartial('${key}', 0.5)">\u00BD</button>
+                <button type="button" class="partial-btn${frac === 0.75 ? ' active' : ''}" onclick="setProductionListPartial('${key}', 0.75)">\u00BE</button>
+              </div>` : ''}
+            </div>
+          </div>`;
+      });
+    });
+    html += `</div>`;
+  }
+
+  wrap.innerHTML = html || '<p class="muted">No production items to log.</p>';
+
+  updateProductionSubmitButtonState();
+}
+
+function adjustProductionListQty(key, delta) {
+  const input = document.getElementById(`prod-${key}`);
+  if (!input) return;
+
+  const currentVal = parseFloat(input.value) || 0;
+  const newVal = Math.max(0, currentVal + delta);
+
+  input.value = newVal;
+  productionEdits[key] = newVal;
+
+  updateProductionPartialToggleUI(key);
+  updateProductionSubmitButtonState();
+}
+
+function setProductionListPartial(key, fraction) {
+  const input = document.getElementById(`prod-${key}`);
+  if (!input) return;
+
+  const whole = Math.floor(parseFloat(input.value) || 0);
+  const newVal = whole + fraction;
+
+  input.value = newVal;
+  productionEdits[key] = newVal;
+
+  updateProductionPartialToggleUI(key);
+  updateProductionSubmitButtonState();
+}
+
+function updateProductionPartialToggleUI(key) {
+  const input = document.getElementById(`prod-${key}`);
+  const toggle = document.getElementById(`prod-partial-${key}`);
+  if (!input || !toggle) return;
+
+  const val = parseFloat(input.value) || 0;
+  const frac = Math.round((val - Math.floor(val)) * 100) / 100;
+
+  // Update active state of fraction buttons
+  toggle.querySelectorAll('.partial-btn').forEach(btn => {
+    btn.classList.remove('active');
+  });
+
+  const activeBtnFrac = frac.toFixed(2);
+  const activeBtn = [...toggle.querySelectorAll('.partial-btn')].find(btn => {
+    const btnFrac = parseFloat(btn.getAttribute('onclick').match(/\d+\.?\d*/)[0]);
+    return btnFrac.toFixed(2) === activeBtnFrac;
+  });
+
+  if (activeBtn) {
+    activeBtn.classList.add('active');
+  }
+}
+
+function updateProductionSubmitButtonState() {
+  const btn = document.getElementById('prod-submit-btn');
+  const summary = document.getElementById('prod-summary');
+
+  if (!btn) return;
+
+  // Count non-zero quantities
+  const nonZeroEntries = Object.values(productionEdits).filter(v => v > 0).length;
+
+  if (!isProductionEmployeeNameEntered()) {
+    btn.disabled = true;
+    btn.textContent = '🔒 Enter Name to Commit';
+    if (summary) summary.textContent = '';
+  } else if (nonZeroEntries === 0) {
+    btn.disabled = true;
+    btn.textContent = 'Commit All';
+    if (summary) summary.textContent = '0 items';
+  } else {
+    btn.disabled = false;
+    btn.textContent = 'Commit All';
+    if (summary) summary.textContent = `${nonZeroEntries} ${nonZeroEntries === 1 ? 'item' : 'items'}`;
+  }
+}
+
+async function submitProductionBatch(e) {
+  e.preventDefault();
+
+  const employeeName = document.getElementById('prod-employee-name').value.trim();
+  if (!employeeName) {
+    toast('Please enter your name or initials', 'error');
+    document.getElementById('prod-employee-name').focus();
+    return;
+  }
+
+  // Collect all non-zero quantities
+  const entriesToSubmit = [];
+  for (const [key, quantity] of Object.entries(productionEdits)) {
+    if (quantity > 0) {
+      const [flavorId, productType] = key.split('-');
+      const flavor = flavors.find(f => f.id === parseInt(flavorId));
+      entriesToSubmit.push({
+        flavor_id: parseInt(flavorId),
+        flavor_name: flavor ? flavor.name : 'Unknown',
+        product_type: productType,
+        quantity: quantity,
+        employee_name: employeeName
+      });
+    }
+  }
+
+  if (entriesToSubmit.length === 0) {
+    toast('No production quantities entered', 'warning');
+    return;
+  }
+
+  // Show confirmation
+  const confirmed = await showProductionBatchConfirmModal(entriesToSubmit);
+  if (!confirmed) return;
+
+  // Submit all entries
+  let successCount = 0;
+  let failCount = 0;
+
+  for (const entry of entriesToSubmit) {
+    try {
+      await api('/api/production', {
+        method: 'POST',
+        body: JSON.stringify({
+          flavor_id: entry.flavor_id,
+          product_type: entry.product_type,
+          quantity: entry.quantity,
+          employee_name: entry.employee_name
+        })
+      });
+      successCount++;
+    } catch (e) {
+      console.error('Failed to log production:', e);
+      failCount++;
+    }
+  }
+
+  toast(`Logged ${successCount} production entries${failCount > 0 ? ` (${failCount} failed)` : ''}`,
+        failCount > 0 ? 'warning' : 'success');
+
+  // Save employee name
+  localStorage.setItem('employee-name', employeeName);
+
+  // Reset form
+  productionEdits = {};
+  renderProductionForm();
+  loadProductionHistory();
+}
+
+function showProductionBatchConfirmModal(entries) {
+  return new Promise((resolve) => {
+    const modal = document.getElementById('prod-batch-confirm-modal');
+    const tbody = modal.querySelector('#prod-batch-entries-tbody');
+
+    tbody.innerHTML = entries.map(entry => `
+      <tr>
+        <td>${esc(entry.flavor_name)}</td>
+        <td>${entry.product_type}</td>
+        <td>${entry.quantity}</td>
+      </tr>
+    `).join('');
+
+    const confirmBtn = modal.querySelector('.btn-confirm-prod-batch');
+    const cancelBtn = modal.querySelector('.btn-cancel-prod-batch');
+
+    const cleanup = () => {
+      confirmBtn.onclick = null;
+      cancelBtn.onclick = null;
+      modal.classList.add('hidden');
+    };
+
+    confirmBtn.onclick = () => {
+      cleanup();
+      resolve(true);
+    };
+
+    cancelBtn.onclick = () => {
+      cleanup();
+      resolve(false);
+    };
+
+    modal.classList.remove('hidden');
+  });
 }
 
 // ===== DAILY COUNT =====
@@ -977,9 +2623,19 @@ function renderCountForm() {
     byCat[f.category].push(f);
   });
 
+  // Check if inputs should be locked
+  const isLocked = !isEmployeeNameEntered();
+  const lockedClass = isLocked ? ' count-inputs-locked' : '';
+
   let html = '';
+
+  // Add locked message if needed
+  if (isLocked) {
+    html += `<div class="count-form-locked-message">Enter your name/initials above to start counting</div>`;
+  }
+
   for (const [cat, items] of Object.entries(byCat)) {
-    html += `<div class="count-group">`;
+    html += `<div class="count-group${lockedClass}">`;
     html += `<div class="count-group-header">${esc(cat)}</div>`;
     items.forEach(flavor => {
       flavor.types.forEach(d => {
@@ -1029,9 +2685,118 @@ function renderCountForm() {
   }
 
   wrap.innerHTML = html || '<p class="muted">No flavors to count.</p>';
+
+  // Update submit button state
+  updateSubmitButtonState();
+
+  // Update running total and highlights
+  updateRunningTotal();
+  updateUncountedhighlights();
 }
 
-async function submitCounts() {
+// ===== EMPLOYEE NAME VALIDATION =====
+function isEmployeeNameEntered() {
+  const employeeNameInput = document.getElementById('employee-name');
+  const employeeName = employeeNameInput?.value?.trim();
+  return employeeName && employeeName.length >= 2;
+}
+
+function updateSubmitButtonState() {
+  const btn = document.getElementById('btn-submit-counts');
+  const voiceBtn = document.getElementById('voice-input-btn');
+  const employeeInput = document.getElementById('employee-name');
+
+  if (!isEmployeeNameEntered()) {
+    btn.disabled = true;
+    btn.textContent = '🔒 Enter Name to Submit';
+    if (voiceBtn) voiceBtn.disabled = true;
+    if (employeeInput) employeeInput.parentElement.classList.add('required');
+  } else {
+    btn.disabled = false;
+    btn.textContent = 'Submit All Counts';
+    if (voiceBtn) voiceBtn.disabled = false;
+    if (employeeInput) employeeInput.parentElement.classList.remove('required');
+  }
+}
+
+function setupEmployeeNameListener() {
+  const employeeInput = document.getElementById('employee-name');
+  if (employeeInput) {
+    employeeInput.addEventListener('input', () => {
+      renderCountForm(); // Re-render to unlock/lock inputs
+    });
+
+    // Load saved name from localStorage
+    const savedName = localStorage.getItem('employee-name');
+    if (savedName) {
+      employeeInput.value = savedName;
+      updateSubmitButtonState();
+    }
+  }
+
+  // Setup production employee name listener
+  const prodEmployeeInput = document.getElementById('prod-employee-name');
+  if (prodEmployeeInput) {
+    prodEmployeeInput.addEventListener('input', () => {
+      updateProductionFormLock();
+    });
+
+    // Load saved name
+    const savedProdName = localStorage.getItem('employee-name');
+    if (savedProdName) {
+      prodEmployeeInput.value = savedProdName;
+      updateProductionFormLock();
+    } else {
+      // Initially lock production form
+      updateProductionFormLock();
+    }
+  }
+
+  // Load voice readback preferences
+  const voiceReadbackCheckbox = document.getElementById('voice-readback-enabled');
+  if (voiceReadbackCheckbox) {
+    const savedPreference = localStorage.getItem('voice-readback-enabled');
+    if (savedPreference === 'true') {
+      voiceReadbackCheckbox.checked = true;
+    }
+  }
+
+  const prodVoiceReadbackCheckbox = document.getElementById('prod-voice-readback-enabled');
+  if (prodVoiceReadbackCheckbox) {
+    const savedProdPreference = localStorage.getItem('prod-voice-readback-enabled');
+    if (savedProdPreference === 'true') {
+      prodVoiceReadbackCheckbox.checked = true;
+    }
+  }
+
+  // Load AI Boost preferences
+  const aiBoostCheckbox = document.getElementById('ai-boost-enabled');
+  if (aiBoostCheckbox) {
+    const savedAIBoost = localStorage.getItem('ai-boost-enabled');
+    if (savedAIBoost === 'true') {
+      aiBoostCheckbox.checked = true;
+    }
+  }
+
+  const prodAIBoostCheckbox = document.getElementById('prod-ai-boost-enabled');
+  if (prodAIBoostCheckbox) {
+    const savedProdAIBoost = localStorage.getItem('prod-ai-boost-enabled');
+    if (savedProdAIBoost === 'true') {
+      prodAIBoostCheckbox.checked = true;
+    }
+  }
+
+  // Setup production quantity input listener for partial toggle sync
+  const prodQtyInput = document.getElementById('prod-qty');
+  if (prodQtyInput) {
+    prodQtyInput.addEventListener('input', () => {
+      updateProductionPartialToggleButtons();
+    });
+  }
+}
+
+// ===== SUBMIT CONFIRMATION =====
+function submitCounts() {
   // Get employee name
   const employeeNameInput = document.getElementById('employee-name');
   const employeeName = employeeNameInput?.value?.trim();
@@ -1041,6 +2806,24 @@ async function submitCounts() {
     employeeNameInput?.focus();
     return;
   }
+
+  const entryCount = Object.keys(countEdits).length;
+
+  if (!entryCount) {
+    toast('No counts to submit', 'error');
+    return;
+  }
+
+  // Show confirmation modal
+  document.getElementById('submit-entry-count').textContent = entryCount;
+  document.getElementById('submit-employee-display').textContent = employeeName;
+  document.getElementById('submit-confirm-modal').classList.remove('hidden');
+}
+
+async function confirmSubmitCounts() {
+  // Get employee name
+  const employeeNameInput = document.getElementById('employee-name');
+  const employeeName = employeeNameInput?.value?.trim();
 
   // Get selected date and set time to 9 PM (21:00)
   const countDateInput = document.getElementById('count-date');
@@ -1066,10 +2849,8 @@ async function submitCounts() {
     };
   });
 
-  if (!entries.length) {
-    toast('No counts to submit', 'error');
-    return;
-  }
+  // Close modal
+  closeSubmitConfirmModal();
 
   const btn = document.getElementById('btn-submit-counts');
   btn.disabled = true;
@@ -1092,6 +2873,10 @@ async function submitCounts() {
     btn.disabled = false;
     btn.textContent = 'Submit All Counts';
   }
+}
+
+function closeSubmitConfirmModal() {
+  document.getElementById('submit-confirm-modal').classList.add('hidden');
 }
 
 async function loadCountHistory() {

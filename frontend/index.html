@@ -125,30 +125,99 @@
   <section id="production" class="tab-content">
     <div class="card">
       <h2>Log Production</h2>
-      <form id="production-form" onsubmit="submitProduction(event)">
-        <label>Your Name/Initials</label>
-        <input type="text" id="prod-employee-name" placeholder="e.g., Audrey AH or Napoleon ND" maxlength="50" required>
-
-        <label>Flavor</label>
-        <select id="prod-flavor" required></select>
-
-        <label>Product Type</label>
-        <div class="type-toggle" id="prod-type-toggle">
-          <button type="button" class="toggle-btn active" data-value="tub">Tub</button>
-          <button type="button" class="toggle-btn" data-value="pint">Pint</button>
-          <button type="button" class="toggle-btn" data-value="quart">Quart</button>
-        </div>
-        <input type="hidden" id="prod-type" value="tub">
-
-        <label>Quantity</label>
-        <div class="qty-input-row">
-          <button type="button" class="qty-btn" onclick="adjustQty('prod-qty', -1)">−</button>
-          <input type="number" id="prod-qty" min="1" value="1" required>
-          <button type="button" class="qty-btn" onclick="adjustQty('prod-qty', 1)">+</button>
+      <form id="production-form" onsubmit="submitProductionBatch(event)">
+        <div class="employee-input-wrap" id="prod-employee-wrap">
+          <label for="prod-employee-name">Your Name/Initials</label>
+          <input type="text" id="prod-employee-name" placeholder="e.g., Audrey AH or Napoleon ND" maxlength="50" required>
         </div>
 
-        <button type="submit" class="btn btn-primary btn-full">Log Production</button>
+        <div class="voice-input-section">
+          <div class="voice-controls-row">
+            <button type="button" class="btn btn-secondary" id="prod-voice-input-btn" onclick="toggleProductionVoiceInput()">
+              <span class="voice-icon">🎤</span> Voice Input
+            </button>
+            <div class="voice-readback-toggle">
+              <label>
+                <input type="checkbox" id="prod-voice-readback-enabled" onchange="toggleProductionVoiceReadback()">
+                <span>🔊 Voice Readback</span>
+              </label>
+            </div>
+            <div class="voice-readback-toggle">
+              <label>
+                <input type="checkbox" id="prod-ai-boost-enabled" onchange="toggleProductionAIBoost()">
+                <span>🤖 AI Boost</span>
+              </label>
+            </div>
+          </div>
+          <div id="prod-voice-feedback" class="voice-feedback hidden"></div>
+        </div>
+
+        <div class="filter-row">
+          <select id="prod-category-filter" onchange="renderProductionForm()">
+            <option value="all">All Categories</option>
+          </select>
+          <select id="prod-type-filter" onchange="renderProductionForm()">
+            <option value="all">All Types</option>
+            <option value="tub">Tubs Only</option>
+            <option value="pint">Pints Only</option>
+            <option value="quart">Quarts Only</option>
+          </select>
+        </div>
+
+        <div id="production-form-wrap" class="prod-form-wrap"></div>
+
+        <div class="prod-submit-row">
+          <button type="submit" class="btn btn-primary" id="prod-submit-btn" disabled>
+            Commit All
+          </button>
+          <span class="prod-summary" id="prod-summary">0 items</span>
+        </div>
       </form>
+
+      <!-- Production Batch Confirmation Modal -->
+      <div id="prod-batch-confirm-modal" class="modal hidden">
+        <div class="modal-content">
+          <h3>Confirm Production Entries</h3>
+          <p class="modal-description">You are about to log the following production entries:</p>
+          <table class="voice-confirm-table">
+            <thead>
+              <tr>
+                <th>Flavor</th>
+                <th>Type</th>
+                <th>Quantity</th>
+              </tr>
+            </thead>
+            <tbody id="prod-batch-entries-tbody"></tbody>
+          </table>
+          <div class="modal-actions">
+            <button class="btn btn-primary btn-confirm-prod-batch">Commit All</button>
+            <button class="btn btn-secondary btn-cancel-prod-batch">Cancel</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Production Voice Batch Modal -->
+      <div id="prod-voice-batch-modal" class="modal hidden">
+        <div class="modal-content">
+          <h3>Batch Log Production</h3>
+          <p class="modal-description">Voice detected multiple production entries. Submit all at once?</p>
+          <table class="voice-confirm-table">
+            <thead>
+              <tr>
+                <th>Flavor</th>
+                <th>Type</th>
+                <th>Quantity</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="prod-voice-entries-tbody"></tbody>
+          </table>
+          <div class="modal-actions">
+            <button class="btn btn-primary" onclick="confirmProductionVoiceBatch()">Log All</button>
+            <button class="btn btn-secondary" onclick="closeProductionVoiceBatchModal()">Cancel</button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div class="card">
@@ -174,10 +243,67 @@
       </div>
 
       <div class="voice-input-section">
-        <button type="button" class="btn btn-secondary" id="voice-input-btn" onclick="toggleVoiceInput()">
-          <span class="voice-icon">🎤</span> Voice Input
-        </button>
+        <div class="voice-controls-row">
+          <button type="button" class="btn btn-secondary" id="voice-input-btn" onclick="toggleVoiceInput()">
+            <span class="voice-icon">🎤</span> Voice Input
+          </button>
+          <div class="voice-readback-toggle">
+            <label>
+              <input type="checkbox" id="voice-readback-enabled" onchange="toggleVoiceReadback()">
+              <span>🔊 Voice Readback</span>
+            </label>
+          </div>
+          <div class="voice-readback-toggle">
+            <label>
+              <input type="checkbox" id="ai-boost-enabled" onchange="toggleAIBoost()">
+              <span>🤖 AI Boost</span>
+            </label>
+          </div>
+        </div>
         <div id="voice-feedback" class="voice-feedback hidden"></div>
+        <div id="count-running-total" class="running-total-display"></div>
+      </div>
+
+      <!-- Voice Confirmation Modal -->
+      <div id="voice-confirm-modal" class="modal hidden">
+        <div class="modal-content">
+          <h3>Confirm Voice Entries</h3>
+          <table class="voice-confirm-table">
+            <thead>
+              <tr>
+                <th>Flavor</th>
+                <th>Type</th>
+                <th>Quantity</th>
+                <th>Action</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="voice-entries-tbody"></tbody>
+          </table>
+          <div class="modal-actions">
+            <button class="btn btn-primary" onclick="confirmVoiceEntries()">Apply All</button>
+            <button class="btn btn-secondary" onclick="closeVoiceConfirmModal()">Cancel</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Submit Confirmation Modal -->
+      <div id="submit-confirm-modal" class="modal hidden">
+        <div class="modal-content submit-modal">
+          <h3>⚠️ Confirm Count Submission</h3>
+          <div class="submit-confirm-details">
+            <p class="submit-warning">You are about to submit <strong id="submit-entry-count">0</strong> inventory counts.</p>
+            <div class="submit-employee-box">
+              <span class="submit-label">Submitted by:</span>
+              <span class="submit-employee-name" id="submit-employee-display"></span>
+            </div>
+            <p class="submit-disclaimer">Please verify all counts are accurate. <strong>This action cannot be undone.</strong></p>
+          </div>
+          <div class="modal-actions">
+            <button class="btn btn-danger" onclick="confirmSubmitCounts()">✓ Confirm & Submit</button>
+            <button class="btn btn-secondary" onclick="closeSubmitConfirmModal()">Cancel</button>
+          </div>
+        </div>
       </div>
 
       <div class="filter-row">
