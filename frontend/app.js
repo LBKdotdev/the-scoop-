@@ -44,6 +44,21 @@ function init() {
     loadHome();
     loadProductionHistory();
   });
+  // Auto-select number input contents on focus so typing replaces the value
+  document.addEventListener('focus', (e) => {
+    if (e.target.type === 'number') e.target.select();
+  }, true);
+
+  // Enter key advances to the next number input instead of doing nothing
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.target.type === 'number') {
+      e.preventDefault();
+      const inputs = [...document.querySelectorAll('input[type="number"]:not([disabled])')];
+      const idx = inputs.indexOf(e.target);
+      if (idx >= 0 && idx < inputs.length - 1) inputs[idx + 1].focus();
+    }
+  }, true);
+
   // Close export dropdowns on outside click
   document.addEventListener('click', (e) => {
     if (!e.target.closest('.export-btn') && !e.target.closest('.export-dropdown')) {

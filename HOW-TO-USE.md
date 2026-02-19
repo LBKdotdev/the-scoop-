@@ -87,6 +87,44 @@ It won't show up in counts anymore, but the old data is still saved.
 
 ---
 
+## Voice Input (Count Tab)
+
+Instead of tapping +/− on every item, you can call them out by voice. Tap the **Voice Input** button on the Count tab and speak naturally.
+
+### What to say
+
+**One item at a time:**
+> "Vanilla pint four"
+> "Four pints of vanilla"
+> "Chocolate chip tub one"
+
+Flavor, size, and number in any order — all three are required.
+
+**Multiple items, mixed sizes** — use "and" between them:
+> "Vanilla pint four and chocolate quart seven and chocolate chip tub one"
+
+**Multiple items, same size** — fastest format:
+> "Tubs: nine chocolate chip, four vanilla, two strawberry"
+> "Pints: four vanilla, seven chocolate"
+
+Say the size once, then list flavors with numbers separated by commas.
+
+### Set vs. Add
+
+- **Saying a number alone** → sets the count to that number (replaces what's there)
+- **Saying "add", "also", "found", "plus", or "more"** → adds to the existing count
+
+> "Found three vanilla pints" — bumps the current count up by 3
+> "Vanilla pint three" — sets it to 3
+
+### After you speak
+
+A confirmation screen shows what the app parsed. Review it, then tap **Confirm** to apply. You can remove any wrong entries before confirming.
+
+Say **"undo"** to reverse the last voice entry if you catch a mistake.
+
+---
+
 ## Tips
 
 - **You don't need to be perfect.** Close counts are fine — the app gets smarter over time.

@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>How to Use — The Scoop</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Averia+Serif+Libre:wght@400;700&family=Roboto+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
+  <script>
+    (function() {
+      var t = localStorage.getItem('scoop-theme') || 'dark';
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
+  <style>
+    .help-wrap {
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 2rem 1.25rem 4rem;
+    }
+    .help-wrap h1 {
+      font-family: var(--font-heading);
+      font-size: 2rem;
+      color: var(--red);
+      margin-bottom: 0.25rem;
+    }
+    .help-wrap .back-link {
+      display: inline-block;
+      margin-bottom: 2rem;
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 0.85rem;
+      letter-spacing: 0.05em;
+    }
+    .help-wrap .back-link:hover { color: var(--text-secondary); }
+    .help-wrap h2 {
+      font-family: var(--font-heading);
+      font-size: 1.3rem;
+      color: var(--text-primary);
+      margin: 2.5rem 0 0.75rem;
+      padding-bottom: 0.4rem;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .help-wrap h3 {
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin: 1.5rem 0 0.5rem;
+    }
+    .help-wrap p {
+      color: var(--text-secondary);
+      line-height: 1.7;
+      margin-bottom: 0.75rem;
+    }
+    .help-wrap ul, .help-wrap ol {
+      color: var(--text-secondary);
+      line-height: 1.7;
+      padding-left: 1.5rem;
+      margin-bottom: 0.75rem;
+    }
+    .help-wrap li { margin-bottom: 0.3rem; }
+    .help-wrap blockquote {
+      background: var(--bg-card);
+      border-left: 3px solid var(--red);
+      border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+      padding: 0.6rem 1rem;
+      margin: 0.5rem 0;
+      color: var(--text-primary);
+      font-style: italic;
+    }
+    .help-wrap table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1rem 0;
+      font-size: 0.9rem;
+    }
+    .help-wrap th {
+      text-align: left;
+      color: var(--text-muted);
+      font-weight: 500;
+      letter-spacing: 0.05em;
+      padding: 0.4rem 0.75rem;
+      border-bottom: 1px solid var(--border-medium);
+    }
+    .help-wrap td {
+      color: var(--text-secondary);
+      padding: 0.5rem 0.75rem;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .help-wrap strong { color: var(--text-primary); }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-center">
+      <h1>The Scoop</h1>
+      <p class="subtitle">How to Use</p>
+    </div>
+  </header>
+
+  <div class="help-wrap">
+    <a href="/" class="back-link">&#8592; Back to app</a>
+
+    <h2>Overview</h2>
+    <p>Three habits keep the app accurate: log production when you make a batch, do the nightly count before close, and check the dashboard for alerts before you start making ice cream.</p>
+
+    <h2>Step 1 — Log Production</h2>
+    <p>Every time you make a batch, log it right away.</p>
+    <ol>
+      <li>Tap the <strong>Production</strong> tab</li>
+      <li>Enter your name or initials</li>
+      <li>Find the flavor and set the quantity using + and −</li>
+      <li>Tap <strong>Commit All</strong></li>
+    </ol>
+    <p>Takes about 5 seconds. Do it before you walk away from the batch.</p>
+
+    <h2>Step 2 — Nightly Count</h2>
+    <p>This replaces the paper tally sheet. Do it every night before close.</p>
+    <ol>
+      <li>Tap the <strong>Count</strong> tab</li>
+      <li>Numbers are already pre-filled — that's the app's best guess based on last night's count + what you made − average consumption</li>
+      <li>Walk the case and freezer. If the number is right, skip it. If it's wrong, tap + or − to fix it</li>
+      <li>Filter by type (Tubs / Pints / Quarts) to move faster</li>
+      <li>Tap <strong>Submit All Counts</strong></li>
+    </ol>
+    <p>Most numbers will already be close — you're mainly just confirming.</p>
+
+    <h2>Step 3 — Check the Dashboard</h2>
+    <p>The <strong>Dashboard</strong> shows everything at a glance.</p>
+    <ul>
+      <li><strong>Alerts</strong> — Red = almost out, yellow = running low. Make those first.</li>
+      <li><strong>Morning Make List</strong> — What to make today based on last night's count and par levels</li>
+      <li><strong>Current Inventory</strong> — Green = good, orange = getting low, red = out</li>
+      <li><strong>Flavor Popularity</strong> — Best sellers for the week</li>
+    </ul>
+
+    <h2>Voice Input (Count Tab)</h2>
+    <p>Instead of tapping +/− on every item, call them out by voice. Tap <strong>Voice Input</strong> and speak naturally.</p>
+
+    <h3>One item at a time</h3>
+    <blockquote>"Vanilla pint four"</blockquote>
+    <blockquote>"Four pints of vanilla"</blockquote>
+    <blockquote>"Chocolate chip tub one"</blockquote>
+    <p>Flavor, size, and number in any order — all three are needed.</p>
+
+    <h3>Multiple items, mixed sizes</h3>
+    <p>Use "and" between entries:</p>
+    <blockquote>"Vanilla pint four and chocolate quart seven and chocolate chip tub one"</blockquote>
+
+    <h3>Multiple items, same size — fastest method</h3>
+    <p>Say the size once, then list flavors:</p>
+    <blockquote>"Tubs: nine chocolate chip, four vanilla, two strawberry"</blockquote>
+    <blockquote>"Pints: four vanilla, seven chocolate"</blockquote>
+
+    <h3>Set vs. Add</h3>
+    <ul>
+      <li><strong>Saying a number</strong> → sets the count to that number</li>
+      <li><strong>Saying "add", "also", "found", "plus", or "more"</strong> → adds to what's already there</li>
+    </ul>
+    <blockquote>"Found three vanilla pints" — bumps the count up by 3</blockquote>
+    <blockquote>"Vanilla pint three" — sets it to 3</blockquote>
+    <p>After speaking, a confirmation screen shows what was parsed. Review it and tap <strong>Confirm</strong>. Say <strong>"undo"</strong> to reverse the last voice entry.</p>
+
+    <h2>AI Insights</h2>
+    <p>On the Dashboard, tap <strong>Generate Insights</strong> for smart suggestions — what to make tomorrow, which flavors are trending, if anything is being over-produced.</p>
+
+    <h2>Managing Flavors</h2>
+    <p><strong>Add a flavor:</strong> Flavors tab → type the name → pick a category → Add Flavor.</p>
+    <p><strong>Archive a flavor:</strong> Flavors tab → find it → tap Archive. Old data is kept, it just won't show up in counts anymore.</p>
+    <p><strong>Stock Levels (Par):</strong> Set "Ready at open", "Make more at", and "One batch makes" for each flavor. The app uses these to build the morning make list.</p>
+
+    <h2>Quick Daily Reference</h2>
+    <table>
+      <thead>
+        <tr><th>When</th><th>What</th><th>Time</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Make a batch</td><td>Log it in <strong>Production</strong></td><td>~5 sec</td></tr>
+        <tr><td>Before close</td><td>Do count in <strong>Count</strong></td><td>~2 min</td></tr>
+        <tr><td>Start of day</td><td>Check <strong>Dashboard</strong> alerts</td><td>~30 sec</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Tips</h2>
+    <ul>
+      <li><strong>You don't need to be perfect.</strong> Close counts are fine — the app gets smarter over time.</li>
+      <li><strong>Log production right when you make it.</strong> Don't wait until end of day.</li>
+      <li><strong>Check alerts before you start making ice cream.</strong> It tells you what's running low.</li>
+      <li><strong>The app works on any phone.</strong> No app to download — just open it in your browser.</li>
+    </ul>
+  </div>
+
+  <script src="/static/app.js" defer></script>
+</body>
+</html>

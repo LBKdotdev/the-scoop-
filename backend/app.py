@@ -120,6 +120,11 @@ def serve_index():
     return FileResponse(os.path.join(frontend_dir, "index.html"))
 
 
+@app.get("/help")
+def serve_help():
+    return FileResponse(os.path.join(frontend_dir, "how-to-use.html"))
+
+
 app.mount("/static", StaticFiles(directory=frontend_dir), name="static")
 
 
