@@ -1,32 +1,32 @@
 steps:
-    - name: gcr.io/cloud-builders/docker
-      id: Build
-      args:
-        - build
-        - '--no-cache'
-        - '-t'
-        - 'us-west2-docker.pkg.dev/the-scoop-487921/cloud-run-source-deploy/the-scoop:$COMMIT_SHA'
-        - .
-        - '-f'
-        - Dockerfile
-    - name: gcr.io/cloud-builders/docker
-      id: Push
-      args:
-        - push
-        - 'us-west2-docker.pkg.dev/the-scoop-487921/cloud-run-source-deploy/the-scoop:$COMMIT_SHA'
-    - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
-      id: Deploy
-      entrypoint: gcloud
-      args:
-        - run
-        - services
-        - update
-        - the-scoop
-        - '--platform=managed'
-        - '--image=us-west2-docker.pkg.dev/the-scoop-487921/cloud-run-source-deploy/the-scoop:$COMMIT_SHA'
-        - '--region=us-west2'
-        - '--quiet'
+  - name: gcr.io/cloud-builders/docker
+    id: Build
+    args:
+    - build
+    - --no-cache
+    - -t
+    - us-west2-docker.pkg.dev/the-scoop-487921/cloud-run-source-deploy/the-scoop:$COMMIT_SHA
+    - .
+    - -f
+    - Dockerfile
+  - name: gcr.io/cloud-builders/docker
+    id: Push
+    args:
+    - push
+    - us-west2-docker.pkg.dev/the-scoop-487921/cloud-run-source-deploy/the-scoop:$COMMIT_SHA
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    id: Deploy
+    entrypoint: gcloud
+    args:
+    - run
+    - services
+    - update
+    - the-scoop
+    - --platform=managed
+    - --image=us-west2-docker.pkg.dev/the-scoop-487921/cloud-run-source-deploy/the-scoop:$COMMIT_SHA
+    - --region=us-west2
+    - --quiet
   images:
-    - 'us-west2-docker.pkg.dev/the-scoop-487921/cloud-run-source-deploy/the-scoop:$COMMIT_SHA'
+  - us-west2-docker.pkg.dev/the-scoop-487921/cloud-run-source-deploy/the-scoop:$COMMIT_SHA
   options:
     logging: CLOUD_LOGGING_ONLY
