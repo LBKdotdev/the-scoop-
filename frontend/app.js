@@ -2178,22 +2178,22 @@ function renderParSetup() {
             <div class="par-fields">
               <div class="par-field">
                 <label>Ready at open</label>
-                <input type="number" min="0" value="${ed.target}"
+                <input type="number" inputmode="decimal" min="0" value="${ed.target}"
                   onchange="updateParEdit('${key}', 'target', this.value)">
               </div>
               <div class="par-field">
                 <label>Make more at</label>
-                <input type="number" min="0" value="${ed.minimum}"
+                <input type="number" inputmode="decimal" min="0" value="${ed.minimum}"
                   onchange="updateParEdit('${key}', 'minimum', this.value)">
               </div>
               <div class="par-field">
                 <label>One batch makes</label>
-                <input type="number" min="0.25" step="0.25" value="${ed.batch_size}"
+                <input type="number" inputmode="decimal" min="0.25" step="0.25" value="${ed.batch_size}"
                   onchange="updateParEdit('${key}', 'batch_size', this.value)">
               </div>
               <div class="par-field">
                 <label>Weekend target</label>
-                <input type="number" min="0" value="${ed.weekend_target}"
+                <input type="number" inputmode="decimal" min="0" value="${ed.weekend_target}"
                   placeholder="—"
                   onchange="updateParEdit('${key}', 'weekend_target', this.value)">
               </div>
@@ -2399,7 +2399,7 @@ function renderProductionForm() {
             <div class="prod-input-wrap">
               <div class="prod-controls">
                 <button class="qty-btn" type="button" onclick="adjustProductionListQty('${key}', -1)">&#8722;</button>
-                <input type="number" id="prod-${key}" value="${val}" min="0" step="${isTub ? '0.25' : '1'}"
+                <input type="number" inputmode="decimal" id="prod-${key}" value="${val}" min="0" step="${isTub ? '0.25' : '1'}"
                        onchange="productionEdits['${key}']=${isTub ? 'parseFloat' : 'parseInt'}(this.value)||0; updateProductionPartialToggleUI('${key}'); updateProductionSubmitButtonState()">
                 <button class="qty-btn" type="button" onclick="adjustProductionListQty('${key}', 1)">+</button>
               </div>
@@ -2697,7 +2697,7 @@ function renderCountForm() {
             <div class="count-input-wrap">
               <div class="count-controls">
                 <button class="qty-btn" onclick="adjustCountQty('${key}', -1)">&#8722;</button>
-                <input type="number" id="count-${key}" value="${val}" min="0" step="${isTub ? '0.25' : '1'}"
+                <input type="number" inputmode="decimal" id="count-${key}" value="${val}" min="0" step="${isTub ? '0.25' : '1'}"
                        onchange="countEdits['${key}']=${isTub ? 'parseFloat' : 'parseInt'}(this.value)||0; updatePartialToggle('${key}'); updateVarianceIndicator('${key}')">
                 <button class="qty-btn" onclick="adjustCountQty('${key}', 1)">+</button>
               </div>
