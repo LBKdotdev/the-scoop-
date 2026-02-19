@@ -28,7 +28,7 @@ Open **http://localhost:8000** in your browser (works great on phone too).
 
 ### Core Formula
 ```
-Consumed = Previous Count + Produced Since − Current Count
+Consumed = Previous Count + Produced Since − Current Count 
 ```
 
 ### AI Insights (optional)
