@@ -44,10 +44,14 @@ function init() {
     loadHome();
     loadProductionHistory();
   });
-  // Auto-select number input contents on focus so typing replaces the value
-  document.addEventListener('focus', (e) => {
-    if (e.target.type === 'number') e.target.select();
-  }, true);
+  // Auto-select number input contents on focus/click so typing replaces the value.
+  // setTimeout is required — on mobile the browser repositions the cursor after
+  // the tap completes, which would undo a synchronous select() call on focus.
+  const selectNumberInput = (e) => {
+    if (e.target.type === 'number') setTimeout(() => e.target.select(), 0);
+  };
+  document.addEventListener('focus', selectNumberInput, true);
+  document.addEventListener('click', selectNumberInput, true);
 
   // Enter key advances to the next number input instead of doing nothing
   document.addEventListener('keydown', (e) => {
