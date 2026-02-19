@@ -116,7 +116,7 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 html {
-  font-size: 18px;
+  font-size: 112.5%;
   -webkit-tap-highlight-color: transparent;
 }
 
