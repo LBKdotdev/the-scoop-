@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+*.log
+inventory.db
+inventory.db.backup
+inventory_BACKUP_*.db
+.git/
+.gitignore
+*.md
+generated-images/

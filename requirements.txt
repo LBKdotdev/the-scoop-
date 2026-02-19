@@ -2,6 +2,7 @@ fastapi
 uvicorn[standard]
 gunicorn
 sqlalchemy
+psycopg2-binary
 pydantic
 anthropic
 python-multipart
