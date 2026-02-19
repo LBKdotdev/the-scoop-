@@ -44,18 +44,32 @@ function init() {
     loadHome();
     loadProductionHistory();
   });
-  // Auto-select number input contents on focus/click so typing replaces the value.
-  // setTimeout is required — on mobile the browser repositions the cursor after
-  // the tap completes, which would undo a synchronous select() call on focus.
-  const selectNumberInput = (e) => {
-    if (e.target.type === 'number') setTimeout(() => e.target.select(), 0);
-  };
-  document.addEventListener('focus', selectNumberInput, true);
-  document.addEventListener('click', selectNumberInput, true);
-
-  // Enter key advances to the next number input instead of doing nothing
+  // Replace-on-type for number inputs: the first digit typed after focusing
+  // clears the existing value so the new number replaces rather than appends.
+  // We can't rely on select() — it's not guaranteed on type=number across
+  // browsers/mobile, so we handle it at the keydown level instead.
+  const freshFocus = new WeakSet();
+  document.addEventListener('focus', (e) => {
+    if (e.target.type === 'number') freshFocus.add(e.target);
+  }, true);
+  document.addEventListener('blur', (e) => {
+    if (e.target.type === 'number') freshFocus.delete(e.target);
+  }, true);
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && e.target.type === 'number') {
+    if (e.target.type === 'number' && freshFocus.has(e.target)) {
+      if (/^[0-9.]$/.test(e.key)) {
+        // First digit clears the field — new number replaces old one
+        freshFocus.delete(e.target);
+        e.target.value = '';
+      } else if (e.key === 'Enter') {
+        // Enter advances to next number input
+        e.preventDefault();
+        freshFocus.delete(e.target);
+        const inputs = [...document.querySelectorAll('input[type="number"]:not([disabled])')];
+        const idx = inputs.indexOf(e.target);
+        if (idx >= 0 && idx < inputs.length - 1) inputs[idx + 1].focus();
+      }
+    } else if (e.key === 'Enter' && e.target.type === 'number') {
       e.preventDefault();
       const inputs = [...document.querySelectorAll('input[type="number"]:not([disabled])')];
       const idx = inputs.indexOf(e.target);
