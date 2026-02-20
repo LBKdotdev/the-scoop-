@@ -233,6 +233,53 @@
       <h2>Nightly Count</h2>
       <p class="muted">Tap to adjust. Smart defaults pre-filled from last count + production − avg consumption.</p>
 
+      <button type="button" class="btn btn-secondary btn-full" onclick="openPhotoImportModal()" style="margin-bottom: 1rem;">
+        <span>&#128247;</span> Import from Sheet
+      </button>
+
+      <!-- Photo Import Modal -->
+      <div id="photo-import-modal" class="modal hidden">
+        <div class="modal-content photo-import-modal-content">
+          <!-- Step 1: Upload -->
+          <div id="photo-step-upload" class="photo-step">
+            <h3>Import from Count Sheet</h3>
+            <p class="modal-description">Photograph or upload a handwritten count sheet. The AI will read all dates, flavors, and counts.</p>
+            <div class="photo-upload-area" id="photo-upload-area">
+              <input type="file" id="photo-file-input" accept="image/*" capture="environment" onchange="onPhotoSelected(event)" style="display:none;">
+              <div id="photo-preview-wrap" class="photo-preview-wrap hidden">
+                <img id="photo-preview-img" alt="Sheet preview">
+              </div>
+              <button type="button" class="btn btn-secondary" onclick="document.getElementById('photo-file-input').click()">
+                Choose Photo
+              </button>
+            </div>
+            <div class="modal-actions">
+              <button class="btn btn-primary" id="btn-scan-sheet" onclick="scanSheet()" disabled>Scan Sheet</button>
+              <button class="btn btn-secondary" onclick="closePhotoImportModal()">Cancel</button>
+            </div>
+          </div>
+
+          <!-- Step 2: Loading -->
+          <div id="photo-step-loading" class="photo-step hidden">
+            <h3>Analyzing Sheet...</h3>
+            <div class="photo-loading-spinner"></div>
+            <p class="muted">This may take 10-15 seconds</p>
+          </div>
+
+          <!-- Step 3: Review -->
+          <div id="photo-step-review" class="photo-step hidden">
+            <h3>Review Scanned Data</h3>
+            <p class="modal-description">Sheet type: <strong id="photo-sheet-type"></strong></p>
+            <div id="photo-warnings" class="photo-warnings hidden"></div>
+            <div id="photo-dates-wrap"></div>
+            <div class="modal-actions">
+              <button class="btn btn-primary" onclick="submitPhotoImport()">Import Selected</button>
+              <button class="btn btn-secondary" onclick="closePhotoImportModal()">Cancel</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="employee-input-wrap">
         <label for="count-date">Count Date</label>
         <input type="date" id="count-date" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border); border-radius: 8px; background: var(--input-bg); color: var(--text); font-size: 1rem; margin-bottom: 1rem;">

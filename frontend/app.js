@@ -4395,3 +4395,235 @@ function formatDate(dateStr) {
   const d = new Date(dateStr + 'T12:00:00');
   return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 }
+
+// ===== PHOTO IMPORT =====
+let photoImportData = null;
+let photoBase64 = null;
+
+function openPhotoImportModal() {
+  document.getElementById('photo-import-modal').classList.remove('hidden');
+  showPhotoStep('upload');
+  // Reset state
+  photoImportData = null;
+  photoBase64 = null;
+  document.getElementById('photo-file-input').value = '';
+  document.getElementById('photo-preview-wrap').classList.add('hidden');
+  document.getElementById('btn-scan-sheet').disabled = true;
+}
+
+function closePhotoImportModal() {
+  document.getElementById('photo-import-modal').classList.add('hidden');
+}
+
+function showPhotoStep(step) {
+  document.querySelectorAll('.photo-step').forEach(el => el.classList.add('hidden'));
+  document.getElementById('photo-step-' + step).classList.remove('hidden');
+}
+
+function onPhotoSelected(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  // Resize image client-side
+  const reader = new FileReader();
+  reader.onload = function(ev) {
+    const img = new Image();
+    img.onload = function() {
+      const canvas = document.createElement('canvas');
+      const MAX = 1600;
+      let w = img.width, h = img.height;
+      if (w > MAX || h > MAX) {
+        if (w > h) { h = Math.round(h * MAX / w); w = MAX; }
+        else { w = Math.round(w * MAX / h); h = MAX; }
+      }
+      canvas.width = w;
+      canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+      photoBase64 = dataUrl.split(',')[1];
+
+      // Show preview
+      const preview = document.getElementById('photo-preview-img');
+      preview.src = dataUrl;
+      document.getElementById('photo-preview-wrap').classList.remove('hidden');
+      document.getElementById('btn-scan-sheet').disabled = false;
+    };
+    img.src = ev.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+async function scanSheet() {
+  if (!photoBase64) return;
+  showPhotoStep('loading');
+
+  const flavorNames = flavors.map(f => f.name);
+
+  try {
+    photoImportData = await api('/api/photo-import/parse', {
+      method: 'POST',
+      body: JSON.stringify({
+        image_base64: photoBase64,
+        available_flavors: flavorNames,
+      }),
+    });
+    renderPhotoReview();
+    showPhotoStep('review');
+  } catch (e) {
+    toast('Failed to scan sheet: ' + e.message, 'error');
+    showPhotoStep('upload');
+  }
+}
+
+function renderPhotoReview() {
+  const data = photoImportData;
+  if (!data) return;
+
+  document.getElementById('photo-sheet-type').textContent =
+    data.sheet_type === 'tubs' ? 'Tub Inventory Sheet' :
+    data.sheet_type === 'pints_quarts' ? 'Pints & Quarts Sheet' : data.sheet_type;
+
+  // Warnings
+  const warningsEl = document.getElementById('photo-warnings');
+  if (data.warnings && data.warnings.length > 0) {
+    warningsEl.innerHTML = data.warnings.map(w => `<p class="photo-warning-item">${esc(w)}</p>`).join('');
+    warningsEl.classList.remove('hidden');
+  } else {
+    warningsEl.classList.add('hidden');
+  }
+
+  // Build date sections
+  const wrap = document.getElementById('photo-dates-wrap');
+  if (data.dates.length === 0) {
+    wrap.innerHTML = '<p class="muted">No data detected in the image.</p>';
+    return;
+  }
+
+  let html = '';
+  data.dates.forEach((dateObj, di) => {
+    const displayDate = formatDate(dateObj.date);
+    html += `<div class="photo-date-section">
+      <label class="photo-date-header">
+        <input type="checkbox" checked data-date-idx="${di}" class="photo-date-check">
+        <strong>${esc(displayDate || dateObj.date)}</strong>
+        <input type="text" class="photo-initials-input" value="${esc(dateObj.employee_initials || '')}"
+               placeholder="Initials" data-date-idx="${di}" maxlength="10">
+      </label>
+      <table class="voice-confirm-table photo-review-table">
+        <thead>
+          <tr><th>Flavor</th><th>Type</th><th>Count</th><th>Conf.</th></tr>
+        </thead>
+        <tbody>`;
+
+    dateObj.entries.forEach((entry, ei) => {
+      const confClass = entry.confidence < 0.5 ? 'conf-low' :
+                        entry.confidence < 0.7 ? 'conf-med' : 'conf-high';
+      const confPct = Math.round(entry.confidence * 100);
+      const isUnmatched = !entry.flavor_matched_name;
+
+      let flavorCell;
+      if (isUnmatched) {
+        // Dropdown to pick correct flavor
+        const opts = flavors.map(f =>
+          `<option value="${f.id}" data-name="${esc(f.name)}">${esc(f.name)}</option>`
+        ).join('');
+        flavorCell = `<span class="photo-unmatched-name">${esc(entry.flavor_sheet_name)}</span>
+          <select class="photo-flavor-fix" data-date-idx="${di}" data-entry-idx="${ei}" onchange="fixPhotoFlavor(this)">
+            <option value="">-- Fix match --</option>${opts}
+          </select>`;
+      } else {
+        flavorCell = esc(entry.flavor_matched_name);
+      }
+
+      html += `<tr class="${isUnmatched ? 'photo-row-unmatched' : ''}">
+        <td>${flavorCell}</td>
+        <td>${esc(entry.product_type)}</td>
+        <td><input type="number" step="0.25" min="0" class="photo-count-input"
+                   value="${entry.count}" data-date-idx="${di}" data-entry-idx="${ei}"></td>
+        <td><span class="conf-badge ${confClass}">${confPct}%</span></td>
+      </tr>`;
+    });
+
+    html += `</tbody></table></div>`;
+  });
+
+  // Unmatched flavor summary
+  if (data.unmatched_flavors.length > 0) {
+    html += `<div class="photo-unmatched-summary">
+      <strong>Unmatched flavors:</strong> ${data.unmatched_flavors.map(f => esc(f)).join(', ')}
+      <br><span class="muted">Use the dropdowns above to assign them, or they will be skipped.</span>
+    </div>`;
+  }
+
+  wrap.innerHTML = html;
+}
+
+function fixPhotoFlavor(select) {
+  const di = parseInt(select.dataset.dateIdx);
+  const ei = parseInt(select.dataset.entryIdx);
+  const opt = select.options[select.selectedIndex];
+  if (select.value) {
+    photoImportData.dates[di].entries[ei].flavor_id = parseInt(select.value);
+    photoImportData.dates[di].entries[ei].flavor_matched_name = opt.dataset.name;
+    select.closest('tr').classList.remove('photo-row-unmatched');
+  }
+}
+
+async function submitPhotoImport() {
+  if (!photoImportData) return;
+
+  const allEntries = [];
+  let skippedCount = 0;
+
+  photoImportData.dates.forEach((dateObj, di) => {
+    // Check if date is selected
+    const checkbox = document.querySelector(`.photo-date-check[data-date-idx="${di}"]`);
+    if (!checkbox || !checkbox.checked) return;
+
+    // Get initials
+    const initialsInput = document.querySelector(`.photo-initials-input[data-date-idx="${di}"]`);
+    const initials = initialsInput ? initialsInput.value.trim() : '';
+
+    // Get counted_at timestamp
+    const countedAt = dateObj.date ? dateObj.date + 'T21:00:00Z' : null;
+
+    dateObj.entries.forEach((entry, ei) => {
+      // Get possibly edited count value
+      const countInput = document.querySelector(`.photo-count-input[data-date-idx="${di}"][data-entry-idx="${ei}"]`);
+      const count = countInput ? parseFloat(countInput.value) : entry.count;
+
+      // Need a valid flavor_id
+      if (!entry.flavor_id) {
+        skippedCount++;
+        return;
+      }
+
+      allEntries.push({
+        flavor_id: entry.flavor_id,
+        product_type: entry.product_type,
+        count: count,
+        employee_name: initials,
+        counted_at: countedAt,
+      });
+    });
+  });
+
+  if (allEntries.length === 0) {
+    toast('No entries to import.', 'error');
+    return;
+  }
+
+  try {
+    await api('/api/counts', {
+      method: 'POST',
+      body: JSON.stringify({ entries: allEntries }),
+    });
+    const msg = `Imported ${allEntries.length} counts!` +
+                (skippedCount > 0 ? ` (${skippedCount} skipped — unmatched flavors)` : '');
+    toast(msg);
+    closePhotoImportModal();
+    loadCountHistory();
+  } catch (e) {
+    toast('Import failed: ' + e.message, 'error');
+  }
+}

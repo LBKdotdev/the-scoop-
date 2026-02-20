@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from database import init_db, get_db
-from routes import flavors, production, counts, dashboard, reports, voice
+from routes import flavors, production, counts, dashboard, reports, voice, photo_import
 
 app = FastAPI(title="Ice Cream Inventory Tracker")
 
@@ -29,6 +29,7 @@ app.include_router(counts.router)
 app.include_router(dashboard.router)
 app.include_router(reports.router)
 app.include_router(voice.router)
+app.include_router(photo_import.router)
 
 
 def run_migrations():
