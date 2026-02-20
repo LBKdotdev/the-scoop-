@@ -26,7 +26,7 @@ steps:
     - --image=us-west2-docker.pkg.dev/the-scoop-487921/cloud-run-source-deploy/the-scoop:$COMMIT_SHA
     - --region=us-west2
     - --quiet
-  images:
-  - us-west2-docker.pkg.dev/the-scoop-487921/cloud-run-source-deploy/the-scoop:$COMMIT_SHA
-  options:
-    logging: CLOUD_LOGGING_ONLY
+images:
+- us-west2-docker.pkg.dev/the-scoop-487921/cloud-run-source-deploy/the-scoop:$COMMIT_SHA
+options:
+  logging: CLOUD_LOGGING_ONLY
