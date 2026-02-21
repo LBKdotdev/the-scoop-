@@ -131,6 +131,7 @@ def parse_with_groq(image_base64: str) -> str:
             ],
             "temperature": 0.1,
             "max_tokens": 4096,
+            "response_format": {"type": "json_object"},
         },
         timeout=60,
     )
