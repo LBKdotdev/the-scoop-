@@ -2673,15 +2673,6 @@ function renderCountForm() {
 
   let html = '';
 
-  // Add locked overlay card if needed
-  if (isLocked) {
-    html += `<div class="count-locked-card">
-      <div class="count-locked-arrow">&uarr;</div>
-      <div class="count-locked-icon">&#128274;</div>
-      <div class="count-locked-text">Enter your name above to start counting</div>
-    </div>`;
-  }
-
   for (const [cat, items] of Object.entries(byCat)) {
     html += `<div class="count-group${lockedClass}">`;
     html += `<div class="count-group-header">${esc(cat)}</div>`;
@@ -2754,16 +2745,24 @@ function updateSubmitButtonState() {
   const voiceBtn = document.getElementById('voice-input-btn');
   const employeeInput = document.getElementById('employee-name');
 
+  const cardSlot = document.getElementById('name-locked-card-slot');
+
   if (!isEmployeeNameEntered()) {
     btn.disabled = true;
     btn.textContent = '🔒 Enter Name to Submit';
     if (voiceBtn) voiceBtn.disabled = true;
     if (employeeInput) employeeInput.parentElement.classList.add('required');
+    if (cardSlot) cardSlot.innerHTML = `<div class="count-locked-card">
+      <div class="count-locked-arrow">&uarr;</div>
+      <div class="count-locked-icon">&#128274;</div>
+      <div class="count-locked-text">Enter your name above to start counting</div>
+    </div>`;
   } else {
     btn.disabled = false;
     btn.textContent = 'Submit All Counts';
     if (voiceBtn) voiceBtn.disabled = false;
     if (employeeInput) employeeInput.parentElement.classList.remove('required');
+    if (cardSlot) cardSlot.innerHTML = '';
   }
 }
 
