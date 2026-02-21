@@ -2414,12 +2414,15 @@ tr.ml-stocked .ml-flavor { font-weight: 400; }
 }
 
 .kpi-number {
-  font-size: 56px;
+  font-size: clamp(36px, 10vw, 56px);
   font-weight: 700;
   font-family: var(--font-mono);
   line-height: 1;
   margin-bottom: 8px;
   text-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .kpi-card.critical .kpi-number { color: var(--red); }
