@@ -132,11 +132,11 @@ def parse_with_groq(image_base64: str) -> str:
             "temperature": 0.1,
             "max_tokens": 4096,
         },
-        timeout=30,
+        timeout=60,
     )
 
     if response.status_code != 200:
-        raise Exception(f"Groq API error {response.status_code}: {response.text}")
+        raise Exception(f"Groq API error {response.status_code}: {response.text[:500]}")
 
     result = response.json()
     return result["choices"][0]["message"]["content"].strip()
@@ -191,10 +191,22 @@ def extract_json(text: str) -> dict:
     return json.loads(text[start:end])
 
 
-@router.post("/parse", response_model=PhotoParseResponse)
+@router.post("/parse")
 def parse_photo(request: PhotoParseRequest, db: Session = Depends(get_db)):
     """Parse a photographed inventory count sheet. Uses Groq (primary) or Claude (fallback)."""
+    try:
+        return _do_parse(request, db)
+    except Exception as e:
+        print(f"Photo parse unexpected error: {e}")
+        return {
+            "sheet_type": "unknown",
+            "dates": [],
+            "unmatched_flavors": [],
+            "warnings": [f"Unexpected error: {str(e)}"],
+        }
 
+
+def _do_parse(request: PhotoParseRequest, db: Session):
     # Build flavor lookup
     db_flavors = db.query(Flavor).filter(Flavor.is_active == True).all()
     flavor_map = {f.name: f.id for f in db_flavors}
@@ -217,12 +229,13 @@ def parse_photo(request: PhotoParseRequest, db: Session = Depends(get_db)):
             text = parse_with_claude(request.image_base64)
             raw = extract_json(text)
         except Exception as e:
-            return PhotoParseResponse(
-                sheet_type="unknown",
-                dates=[],
-                unmatched_flavors=[],
-                warnings=[f"Both Groq and Claude failed: {str(e)}"],
-            )
+            print(f"Claude vision also failed: {e}")
+            return {
+                "sheet_type": "unknown",
+                "dates": [],
+                "unmatched_flavors": [],
+                "warnings": [f"Both Groq and Claude failed: {str(e)}"],
+            }
 
     # Match flavor names to DB flavors
     unmatched = set()
