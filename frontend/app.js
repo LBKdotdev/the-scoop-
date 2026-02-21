@@ -160,7 +160,18 @@ function initTabs() {
 
       if (target === 'home') loadHome();
       if (target === 'dashboard') loadDashboard();
-      if (target === 'count') loadSmartDefaults();
+      if (target === 'count') {
+        loadSmartDefaults();
+        // Auto-focus name field for first-time users (no saved name)
+        const savedName = localStorage.getItem('employee-name');
+        if (!savedName) {
+          const nameInput = document.getElementById('employee-name');
+          if (nameInput) {
+            nameInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            setTimeout(() => nameInput.focus(), 300);
+          }
+        }
+      }
       if (target === 'production') { loadProductionDefaults(); loadProductionHistory(); restoreEmployeeName('prod-employee-name'); }
       if (target === 'flavors') loadParLevels();
       if (target === 'reports') { initReportRangeToggle(); loadReports(); }
@@ -2662,9 +2673,13 @@ function renderCountForm() {
 
   let html = '';
 
-  // Add locked message if needed
+  // Add locked overlay card if needed
   if (isLocked) {
-    html += `<div class="count-form-locked-message">Enter your name/initials above to start counting</div>`;
+    html += `<div class="count-locked-card">
+      <div class="count-locked-arrow">&uarr;</div>
+      <div class="count-locked-icon">&#128274;</div>
+      <div class="count-locked-text">Enter your name above to start counting</div>
+    </div>`;
   }
 
   for (const [cat, items] of Object.entries(byCat)) {

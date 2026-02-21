@@ -971,30 +971,58 @@ input.voice-updated-batch {
   position: relative;
 }
 
-.count-form-locked-message {
-  background: var(--yellow);
-  padding: 16px;
+.count-locked-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 24px 28px;
+  margin: 8px 0 16px;
+  background: var(--bg-card);
+  border: 2px dashed var(--red);
   border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
   text-align: center;
-  margin-bottom: 16px;
-  font-weight: 600;
+}
+
+.count-locked-arrow {
+  font-size: 2rem;
+  line-height: 1;
+  color: var(--red);
+  animation: bounce-up 1.2s ease-in-out infinite;
+}
+
+.count-locked-icon {
+  font-size: 2rem;
+  margin: 8px 0 4px;
+}
+
+.count-locked-text {
+  font-size: 1.1rem;
+  font-weight: 700;
   color: var(--text-primary);
 }
 
-.count-form-locked-message::before {
-  content: "🔒 ";
-  font-size: 1.2rem;
+@keyframes bounce-up {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
 }
 
 .employee-input-wrap.required {
-  border-color: var(--yellow);
-  background: rgba(251, 191, 36, 0.1);
-  animation: pulse-border 2s ease infinite;
+  border-color: var(--red);
+  background: rgba(228, 5, 33, 0.06);
+  animation: pulse-glow 1.5s ease-in-out infinite;
 }
 
-@keyframes pulse-border {
-  0%, 100% { border-color: var(--yellow); }
-  50% { border-color: var(--orange); }
+@keyframes pulse-glow {
+  0%, 100% {
+    border-color: var(--red);
+    box-shadow: 0 0 4px rgba(228, 5, 33, 0.2);
+  }
+  50% {
+    border-color: #FF6B6B;
+    box-shadow: 0 0 16px rgba(228, 5, 33, 0.35);
+  }
 }
 
 /* ===== VOICE ENHANCEMENTS ===== */
