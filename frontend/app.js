@@ -2128,6 +2128,7 @@ async function loadParLevels() {
         target: p.target,
         minimum: p.minimum,
         batch_size: p.batch_size,
+        subsequent_batch_size: p.subsequent_batch_size ?? '',
         weekend_target: p.weekend_target ?? '',
       };
     });
@@ -2179,7 +2180,7 @@ function renderParSetup() {
     for (const [flavorKey, items] of Object.entries(flavorsMap)) {
       items.forEach(p => {
         const key = `${p.flavor_id}-${p.product_type}`;
-        const ed = parEdits[key] || { target: p.target, minimum: p.minimum, batch_size: p.batch_size, weekend_target: p.weekend_target ?? '' };
+        const ed = parEdits[key] || { target: p.target, minimum: p.minimum, batch_size: p.batch_size, subsequent_batch_size: p.subsequent_batch_size ?? '', weekend_target: p.weekend_target ?? '' };
         html += `
           <div class="par-row">
             <div class="par-row-header">
@@ -2203,6 +2204,12 @@ function renderParSetup() {
                   onchange="updateParEdit('${key}', 'batch_size', this.value)">
               </div>
               <div class="par-field">
+                <label>Addl. batch makes</label>
+                <input type="number" inputmode="decimal" min="0" step="0.25" value="${ed.subsequent_batch_size}"
+                  placeholder="—"
+                  onchange="updateParEdit('${key}', 'subsequent_batch_size', this.value)">
+              </div>
+              <div class="par-field">
                 <label>Weekend target</label>
                 <input type="number" inputmode="decimal" min="0" value="${ed.weekend_target}"
                   placeholder="—"
@@ -2221,10 +2228,10 @@ function renderParSetup() {
 function updateParEdit(key, field, value) {
   if (!parEdits[key]) {
     const [fid, ptype] = key.split('-');
-    parEdits[key] = { flavor_id: parseInt(fid), product_type: ptype, target: 0, minimum: 0, batch_size: 1, weekend_target: '' };
+    parEdits[key] = { flavor_id: parseInt(fid), product_type: ptype, target: 0, minimum: 0, batch_size: 1, subsequent_batch_size: '', weekend_target: '' };
   }
-  if (field === 'weekend_target') {
-    parEdits[key][field] = value === '' ? '' : parseInt(value) || 0;
+  if (field === 'weekend_target' || field === 'subsequent_batch_size') {
+    parEdits[key][field] = value === '' ? '' : parseFloat(value) || 0;
   } else if (field === 'batch_size') {
     parEdits[key][field] = parseFloat(value) || 1;
   } else {
@@ -2241,6 +2248,7 @@ async function saveParLevels() {
       target: ed.target || 0,
       minimum: ed.minimum || 0,
       batch_size: Math.max(0.25, ed.batch_size || 1),
+      subsequent_batch_size: ed.subsequent_batch_size === '' ? null : (ed.subsequent_batch_size || null),
       weekend_target: ed.weekend_target === '' ? null : (ed.weekend_target || null),
     };
   });

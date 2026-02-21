@@ -178,25 +178,25 @@ for f in flavor_objs:
     for ptype in ptypes:
         if ptype == "tub":
             if t == "high":
-                target, minimum, batch, wknd = 4, 2, 2, 6
+                target, minimum, batch, subseq, wknd = 4, 2, 2.5, 2, 6
             elif t == "med":
-                target, minimum, batch, wknd = 3, 1, 1, 4
+                target, minimum, batch, subseq, wknd = 3, 1, 2.5, 2, 4
             else:
-                target, minimum, batch, wknd = 2, 1, 1, 3
+                target, minimum, batch, subseq, wknd = 2, 1, 2.5, 2, 3
         elif ptype == "pint":
             if t == "high":
-                target, minimum, batch, wknd = 10, 4, 6, 14
+                target, minimum, batch, subseq, wknd = 10, 4, 6, 5, 14
             elif t == "med":
-                target, minimum, batch, wknd = 6, 2, 6, 8
+                target, minimum, batch, subseq, wknd = 6, 2, 6, 5, 8
             else:
-                target, minimum, batch, wknd = 4, 1, 4, 6
+                target, minimum, batch, subseq, wknd = 4, 1, 4, 3, 6
         else:  # quart
             if t == "high":
-                target, minimum, batch, wknd = 6, 2, 3, 8
+                target, minimum, batch, subseq, wknd = 6, 2, 3, 2.5, 8
             elif t == "med":
-                target, minimum, batch, wknd = 4, 1, 3, 5
+                target, minimum, batch, subseq, wknd = 4, 1, 3, 2.5, 5
             else:
-                target, minimum, batch, wknd = 2, 1, 2, 3
+                target, minimum, batch, subseq, wknd = 2, 1, 2, 1.5, 3
 
         db.add(ParLevel(
             flavor_id=f.id,
@@ -204,6 +204,7 @@ for f in flavor_objs:
             target=target,
             minimum=minimum,
             batch_size=batch,
+            subsequent_batch_size=subseq,
             weekend_target=wknd,
         ))
         par_count += 1

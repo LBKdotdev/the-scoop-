@@ -57,4 +57,5 @@ class ParLevel(Base):
     target = Column(Integer, nullable=False, default=0)          # "Ready at open"
     minimum = Column(Integer, nullable=False, default=0)         # "Make more at"
     batch_size = Column(Float, nullable=False, default=1)        # "One batch makes"
+    subsequent_batch_size = Column(Float, nullable=True)         # "Additional batches make"
     weekend_target = Column(Integer, nullable=True)              # "Weekend target" (Fri-Sun)

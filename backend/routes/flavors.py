@@ -25,6 +25,7 @@ class ParLevelUpdate(BaseModel):
     target: int = 0
     minimum: int = 0
     batch_size: float = 1
+    subsequent_batch_size: Optional[float] = None
     weekend_target: Optional[int] = None
 
 
@@ -34,6 +35,7 @@ class ParLevelBulkItem(BaseModel):
     target: int = 0
     minimum: int = 0
     batch_size: float = 1
+    subsequent_batch_size: Optional[float] = None
     weekend_target: Optional[int] = None
 
 
@@ -85,6 +87,7 @@ def create_flavor(flavor: FlavorCreate, db: Session = Depends(get_db)):
             target=0,
             minimum=0,
             batch_size=2.5 if ptype == "tub" else (48 if ptype == "pint" else 24),
+            subsequent_batch_size=2 if ptype == "tub" else (40 if ptype == "pint" else 20),
         ))
 
     db.commit()
@@ -114,6 +117,7 @@ def get_all_par_levels(db: Session = Depends(get_db)):
             "target": pl.target,
             "minimum": pl.minimum,
             "batch_size": pl.batch_size,
+            "subsequent_batch_size": pl.subsequent_batch_size,
             "weekend_target": pl.weekend_target,
         }
         for pl, name, cat in levels
@@ -139,6 +143,7 @@ def bulk_update_par_levels(data: ParLevelBulkUpdate, db: Session = Depends(get_d
         par.target = item.target
         par.minimum = item.minimum
         par.batch_size = max(0.25, item.batch_size)
+        par.subsequent_batch_size = item.subsequent_batch_size
         par.weekend_target = item.weekend_target
         updated += 1
 
@@ -249,6 +254,7 @@ def set_par_level(
     par.target = data.target
     par.minimum = data.minimum
     par.batch_size = max(0.25, data.batch_size)
+    par.subsequent_batch_size = data.subsequent_batch_size
     par.weekend_target = data.weekend_target
     db.commit()
     db.refresh(par)

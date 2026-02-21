@@ -104,13 +104,25 @@ def morning_make_list(db: Session = Depends(get_db)):
 
         deficit = max(0, target - on_hand)
         batch = max(0.25, par.batch_size)
-        batches_needed = deficit / batch if deficit > 0 else 0
+        subsequent = par.subsequent_batch_size
+
+        # Stepping yield: first batch makes `batch`, subsequent batches make `subsequent`
+        if deficit <= 0:
+            batches_needed = 0
+        elif subsequent and subsequent > 0:
+            if deficit <= batch:
+                batches_needed = 1
+            else:
+                batches_needed = 1 + math.ceil((deficit - batch) / subsequent)
+        else:
+            batches_needed = deficit / batch  # original flat behavior
 
         flavor_map[par.flavor_id]["products"][par.product_type] = {
             "on_hand": on_hand,
             "target": target,
             "minimum": par.minimum,
             "batch_size": par.batch_size,
+            "subsequent_batch_size": subsequent,
             "deficit": deficit,
             "batches_needed": batches_needed,
             "status": "critical" if on_hand <= par.minimum and deficit > 0
