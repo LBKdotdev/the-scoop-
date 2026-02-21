@@ -208,7 +208,7 @@ def parse_photo(request: PhotoParseRequest, db: Session = Depends(get_db)):
 
 def _do_parse(request: PhotoParseRequest, db: Session):
     # Build flavor lookup
-    db_flavors = db.query(Flavor).filter(Flavor.is_active == True).all()
+    db_flavors = db.query(Flavor).filter(Flavor.active == True).all()
     flavor_map = {f.name: f.id for f in db_flavors}
     available_names = list(flavor_map.keys())
 
