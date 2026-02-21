@@ -2968,6 +2968,16 @@ async function loadCountHistory() {
 
 // ===== HOME =====
 async function loadHome() {
+  // Show shimmer placeholders while loading
+  const kpiWrap = document.getElementById('kpi-grid');
+  kpiWrap.innerHTML = `<div class="kpi-shimmer-grid" style="grid-column:1/-1">${
+    [1,2,3,4].map(() => `<div class="kpi-shimmer-card"><div class="shimmer shimmer-circle"></div><div class="shimmer shimmer-text"></div></div>`).join('')
+  }</div>`;
+  const insightsWrap = document.getElementById('home-insights');
+  insightsWrap.innerHTML = [1,2,3].map(() => `<li class="shimmer shimmer-line"></li>`).join('');
+  const prioritiesWrap = document.getElementById('top-priorities');
+  prioritiesWrap.innerHTML = [1,2].map(() => `<div class="shimmer shimmer-block" style="margin-bottom:8px"></div>`).join('');
+
   try {
     const makeList = await api('/api/dashboard/make-list');
     renderKPIs(makeList);
@@ -3006,19 +3016,19 @@ function renderKPIs(data) {
   wrap.innerHTML = `
     <div class="kpi-card critical clickable" onclick="switchToTab('dashboard')" title="View critical items on Dashboard">
       <div class="kpi-number">${critical}</div>
-      <div class="kpi-label">Critical Items</div>
+      <div class="kpi-label">🚨 Critical Items</div>
     </div>
     <div class="kpi-card warning clickable" onclick="switchToTab('dashboard')" title="View below par items on Dashboard">
       <div class="kpi-number">${belowPar}</div>
-      <div class="kpi-label">Below Par</div>
+      <div class="kpi-label">🐄 Below Par</div>
     </div>
     <div class="kpi-card neutral clickable" onclick="switchToTab('dashboard')" title="View full make list on Dashboard">
       <div class="kpi-number">${batches}</div>
-      <div class="kpi-label">Batches Needed</div>
+      <div class="kpi-label">🪣 Batches Needed</div>
     </div>
     <div class="kpi-card success clickable" onclick="switchToTab('flavors')" title="View stock levels on Flavors tab">
       <div class="kpi-number">${stocked}</div>
-      <div class="kpi-label">Fully Stocked</div>
+      <div class="kpi-label">🌾 Fully Stocked</div>
     </div>
   `;
 }
@@ -3112,6 +3122,20 @@ function renderTopPriorities(data) {
   wrap.innerHTML = html;
 }
 
+function getFarmGreeting() {
+  const hour = new Date().getHours();
+  if (hour < 12) {
+    const m = ['Moo-rning update!', 'Fresh from the barn!', 'Rise and churn!'];
+    return m[Math.floor(Math.random() * m.length)];
+  } else if (hour < 17) {
+    const a = ['Afternoon herd report!', 'Midday from the pasture!', 'Fresh off the farm!'];
+    return a[Math.floor(Math.random() * a.length)];
+  } else {
+    const e = ['Evening barn check!', 'Sunset on the farm!', 'Closing time at the creamery!'];
+    return e[Math.floor(Math.random() * e.length)];
+  }
+}
+
 function renderHomeInsights(data) {
   const wrap = document.getElementById('home-insights');
   const insights = [];
@@ -3133,6 +3157,9 @@ function renderHomeInsights(data) {
   const stocked = data.filter(i => getTotalBatches(i) === 0).length;
   const isWeekend = data[0]?.is_weekend;
 
+  const emojis = ['🐄', '🥛', '🧈', '🌾'];
+  let emojiIdx = 0;
+
   if (critical > 0) {
     insights.push(`${critical} flavor${critical > 1 ? 's' : ''} critically low - prioritize these first`);
   }
@@ -3149,7 +3176,12 @@ function renderHomeInsights(data) {
     insights.push('All stock levels look good. Check back tonight after count.');
   }
 
-  wrap.innerHTML = insights.map(i => `<li class="home-insight-item">${esc(i)}</li>`).join('');
+  const greeting = `<li class="farm-greeting">${esc(getFarmGreeting())}</li>`;
+  const items = insights.map(i => {
+    const emoji = emojis[emojiIdx++ % emojis.length];
+    return `<li class="home-insight-item" data-emoji="${emoji}">${esc(i)}</li>`;
+  }).join('');
+  wrap.innerHTML = greeting + items;
 }
 
 function switchToTab(tabName) {

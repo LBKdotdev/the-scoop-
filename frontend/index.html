@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
   <meta name="color-scheme" content="dark light">
   <title>The Scoop</title>
+  <link rel="icon" type="image/png" href="/static/Rich_Farm_logo.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Averia+Serif+Libre:wght@400;700&family=Roboto+Mono:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/styles.css">
@@ -23,8 +24,8 @@
 <body>
   <header>
     <div class="header-center">
-      <h1>The Scoop</h1>
-      <p class="subtitle">Professional Inventory Analytics</p>
+      <h1><img src="/static/Rich_Farm_logo.png" alt="Audrey the cow" class="header-logo"> The Scoop</h1>
+      <p class="subtitle">Farm-Fresh Inventory Analytics</p>
     </div>
     <a href="/help" target="_blank" class="help-link" title="How to use">?</a>
     <button id="theme-toggle" class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
@@ -46,7 +47,12 @@
   <section id="home" class="tab-content active">
     <div class="card">
       <div class="kpi-grid" id="kpi-grid">
-        <p class="muted">Loading...</p>
+        <div class="kpi-shimmer-grid" style="grid-column:1/-1">
+          <div class="kpi-shimmer-card"><div class="shimmer shimmer-circle"></div><div class="shimmer shimmer-text"></div></div>
+          <div class="kpi-shimmer-card"><div class="shimmer shimmer-circle"></div><div class="shimmer shimmer-text"></div></div>
+          <div class="kpi-shimmer-card"><div class="shimmer shimmer-circle"></div><div class="shimmer shimmer-text"></div></div>
+          <div class="kpi-shimmer-card"><div class="shimmer shimmer-circle"></div><div class="shimmer shimmer-text"></div></div>
+        </div>
       </div>
     </div>
 
@@ -60,14 +66,17 @@
     <div class="card">
       <h2>Top Priorities</h2>
       <div id="top-priorities">
-        <p class="muted">Loading...</p>
+        <div class="shimmer shimmer-block" style="margin-bottom:8px"></div>
+        <div class="shimmer shimmer-block"></div>
       </div>
     </div>
 
     <div class="card">
       <h2>Quick Insights</h2>
       <ul class="home-insights" id="home-insights">
-        <li class="muted">Loading...</li>
+        <li class="shimmer shimmer-line"></li>
+        <li class="shimmer shimmer-line"></li>
+        <li class="shimmer shimmer-line"></li>
       </ul>
     </div>
   </section>
@@ -390,37 +399,37 @@
     </div>
 
     <div class="card">
-      <h2>Variance Tracking <button class="export-btn" onclick="toggleExportDropdown(event, 'variance')">Export &#9662;</button></h2>
+      <h2>📊 Variance Tracking <button class="export-btn" onclick="toggleExportDropdown(event, 'variance')">Export &#9662;</button></h2>
       <div id="variance-summary"></div>
       <canvas id="variance-chart"></canvas>
       <div id="variance-items" class="table-wrap"></div>
     </div>
 
     <div class="card">
-      <h2>Consumption Trends <button class="export-btn" onclick="toggleExportDropdown(event, 'trend')">Export &#9662;</button></h2>
+      <h2>📈 Consumption Trends <button class="export-btn" onclick="toggleExportDropdown(event, 'trend')">Export &#9662;</button></h2>
       <canvas id="trend-chart"></canvas>
       <div id="trend-summary" class="table-wrap"></div>
     </div>
 
     <div class="card">
-      <h2>Production Summary <button class="export-btn" onclick="toggleExportDropdown(event, 'waste')">Export &#9662;</button></h2>
+      <h2>🏭 Production Summary <button class="export-btn" onclick="toggleExportDropdown(event, 'waste')">Export &#9662;</button></h2>
       <canvas id="waste-chart"></canvas>
       <div id="waste-table" class="table-wrap"></div>
     </div>
 
     <div class="card">
-      <h2>Category Performance <button class="export-btn" onclick="toggleExportDropdown(event, 'category')">Export &#9662;</button></h2>
+      <h2>🏆 Category Performance <button class="export-btn" onclick="toggleExportDropdown(event, 'category')">Export &#9662;</button></h2>
       <canvas id="category-chart"></canvas>
       <div id="category-table" class="table-wrap"></div>
     </div>
 
     <div class="card">
-      <h2>Par Level Accuracy <button class="export-btn" onclick="toggleExportDropdown(event, 'par')">Export &#9662;</button></h2>
+      <h2>🎯 Par Level Accuracy <button class="export-btn" onclick="toggleExportDropdown(event, 'par')">Export &#9662;</button></h2>
       <div id="par-accuracy-table" class="table-wrap"></div>
     </div>
 
     <div class="card">
-      <h2>Employee Performance <button class="export-btn" onclick="toggleExportDropdown(event, 'employee')">Export &#9662;</button></h2>
+      <h2>👩‍🌾 Employee Performance <button class="export-btn" onclick="toggleExportDropdown(event, 'employee')">Export &#9662;</button></h2>
       <div id="employee-performance-wrap"></div>
     </div>
   </section>
