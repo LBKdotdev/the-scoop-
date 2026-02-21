@@ -111,7 +111,7 @@ def parse_with_groq(image_base64: str) -> str:
             "Content-Type": "application/json",
         },
         json={
-            "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+            "model": "llama-3.2-90b-vision-preview",
             "messages": [
                 {
                     "role": "user",
