@@ -3,12 +3,16 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import List, Optional
 import json
+import os
+import requests
 from database import get_db
 from models import Flavor
-from ai_insights import get_client
 from routes.voice import fuzzy_match_flavor
 
 router = APIRouter(prefix="/api/photo-import", tags=["photo-import"])
+
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 
 class PhotoParseRequest(BaseModel):
@@ -98,37 +102,24 @@ Respond with ONLY valid JSON in this exact format (no markdown, no explanation):
 }"""
 
 
-@router.post("/parse", response_model=PhotoParseResponse)
-def parse_photo(request: PhotoParseRequest, db: Session = Depends(get_db)):
-    """Parse a photographed inventory count sheet using Claude Vision."""
-    client = get_client()
-    if not client:
-        return PhotoParseResponse(
-            sheet_type="unknown",
-            dates=[],
-            unmatched_flavors=[],
-            warnings=["ANTHROPIC_API_KEY not configured. Cannot parse photos."],
-        )
-
-    # Build flavor lookup: name -> (id, name)
-    db_flavors = db.query(Flavor).filter(Flavor.is_active == True).all()
-    flavor_map = {f.name: f.id for f in db_flavors}
-    available_names = list(flavor_map.keys())
-
-    try:
-        response = client.messages.create(
-            model="claude-sonnet-4-5-20250929",
-            max_tokens=4096,
-            messages=[
+def parse_with_groq(image_base64: str) -> str:
+    """Parse sheet image using Groq Vision (Llama 4 Scout). Returns raw JSON text."""
+    response = requests.post(
+        GROQ_API_URL,
+        headers={
+            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+            "messages": [
                 {
                     "role": "user",
                     "content": [
                         {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": "image/jpeg",
-                                "data": request.image_base64,
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{image_base64}",
                             },
                         },
                         {
@@ -138,29 +129,100 @@ def parse_photo(request: PhotoParseRequest, db: Session = Depends(get_db)):
                     ],
                 }
             ],
-        )
+            "temperature": 0.1,
+            "max_tokens": 4096,
+        },
+        timeout=30,
+    )
 
-        text = response.content[0].text
-        # Extract JSON from response
-        start = text.find("{")
-        end = text.rfind("}") + 1
-        if start < 0 or end <= start:
+    if response.status_code != 200:
+        raise Exception(f"Groq API error {response.status_code}: {response.text}")
+
+    result = response.json()
+    return result["choices"][0]["message"]["content"].strip()
+
+
+def parse_with_claude(image_base64: str) -> str:
+    """Fallback: parse sheet image using Claude Vision. Returns raw JSON text."""
+    from ai_insights import get_client
+
+    client = get_client()
+    if not client:
+        raise Exception("ANTHROPIC_API_KEY not configured")
+
+    response = client.messages.create(
+        model="claude-sonnet-4-5-20250929",
+        max_tokens=4096,
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/jpeg",
+                            "data": image_base64,
+                        },
+                    },
+                    {
+                        "type": "text",
+                        "text": VISION_PROMPT,
+                    },
+                ],
+            }
+        ],
+    )
+    return response.content[0].text
+
+
+def extract_json(text: str) -> dict:
+    """Extract JSON object from AI response text, handling markdown code blocks."""
+    # Strip markdown code blocks if present
+    if "```json" in text:
+        text = text.split("```json")[1].split("```")[0].strip()
+    elif "```" in text:
+        text = text.split("```")[1].split("```")[0].strip()
+
+    start = text.find("{")
+    end = text.rfind("}") + 1
+    if start < 0 or end <= start:
+        raise ValueError("No JSON object found in response")
+    return json.loads(text[start:end])
+
+
+@router.post("/parse", response_model=PhotoParseResponse)
+def parse_photo(request: PhotoParseRequest, db: Session = Depends(get_db)):
+    """Parse a photographed inventory count sheet. Uses Groq (primary) or Claude (fallback)."""
+
+    # Build flavor lookup
+    db_flavors = db.query(Flavor).filter(Flavor.is_active == True).all()
+    flavor_map = {f.name: f.id for f in db_flavors}
+    available_names = list(flavor_map.keys())
+
+    warnings = []
+
+    # Try Groq first, fall back to Claude
+    raw = None
+    if GROQ_API_KEY:
+        try:
+            text = parse_with_groq(request.image_base64)
+            raw = extract_json(text)
+        except Exception as e:
+            print(f"Groq vision failed: {e}")
+            warnings.append(f"Groq vision failed, trying Claude fallback...")
+
+    if raw is None:
+        try:
+            text = parse_with_claude(request.image_base64)
+            raw = extract_json(text)
+        except Exception as e:
             return PhotoParseResponse(
                 sheet_type="unknown",
                 dates=[],
                 unmatched_flavors=[],
-                warnings=["Could not parse AI response as JSON."],
+                warnings=[f"Both Groq and Claude failed: {str(e)}"],
             )
-
-        raw = json.loads(text[start:end])
-
-    except Exception as e:
-        return PhotoParseResponse(
-            sheet_type="unknown",
-            dates=[],
-            unmatched_flavors=[],
-            warnings=[f"AI parsing error: {str(e)}"],
-        )
 
     # Match flavor names to DB flavors
     unmatched = set()
@@ -195,9 +257,14 @@ def parse_photo(request: PhotoParseRequest, db: Session = Depends(get_db)):
             )
         )
 
+    # Merge any AI warnings
+    ai_warnings = raw.get("warnings", [])
+    if ai_warnings:
+        warnings.extend(ai_warnings)
+
     return PhotoParseResponse(
         sheet_type=raw.get("sheet_type", "unknown"),
         dates=dates_out,
         unmatched_flavors=sorted(unmatched),
-        warnings=raw.get("warnings", []),
+        warnings=warnings,
     )
