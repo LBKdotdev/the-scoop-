@@ -230,11 +230,12 @@ def _do_parse(request: PhotoParseRequest, db: Session):
             raw = extract_json(text)
         except Exception as e:
             print(f"Claude vision also failed: {e}")
+            warnings.append(f"Claude failed: {str(e)[:200]}")
             return {
                 "sheet_type": "unknown",
                 "dates": [],
                 "unmatched_flavors": [],
-                "warnings": [f"Both Groq and Claude failed: {str(e)}"],
+                "warnings": warnings,
             }
 
     # Match flavor names to DB flavors
