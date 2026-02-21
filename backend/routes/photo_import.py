@@ -222,7 +222,7 @@ def _do_parse(request: PhotoParseRequest, db: Session):
             raw = extract_json(text)
         except Exception as e:
             print(f"Groq vision failed: {e}")
-            warnings.append(f"Groq vision failed, trying Claude fallback...")
+            warnings.append(f"Groq vision failed: {str(e)[:200]}")
 
     if raw is None:
         try:
