@@ -2182,6 +2182,8 @@ function renderParSetup() {
     html += `<div class="par-group-header">${esc(cat)}</div>`;
 
     for (const [flavorKey, items] of Object.entries(flavorsMap)) {
+      const typeOrder = { tub: 0, pint: 1, quart: 2 };
+      items.sort((a, b) => (typeOrder[a.product_type] ?? 9) - (typeOrder[b.product_type] ?? 9));
       items.forEach(p => {
         const key = `${p.flavor_id}-${p.product_type}`;
         const ed = parEdits[key] || { target: p.target, minimum: p.minimum, batch_size: p.batch_size, subsequent_batch_size: p.subsequent_batch_size ?? '', weekend_target: p.weekend_target ?? '' };
@@ -3759,11 +3761,19 @@ function renderTrendSummary(data) {
     return;
   }
 
-  // Aggregate closing stock levels by flavor and date
+  // Aggregate closing stock by flavor, product type, and date
   const byFlavor = {};
   data.forEach(d => {
-    if (!byFlavor[d.flavor_name]) byFlavor[d.flavor_name] = { totalConsumed: 0, dates: {} };
+    if (!byFlavor[d.flavor_name]) {
+      byFlavor[d.flavor_name] = { totalConsumed: 0, byType: {}, dates: {} };
+    }
     byFlavor[d.flavor_name].totalConsumed += d.consumed;
+    // Track per-type daily counts for averaging
+    if (!byFlavor[d.flavor_name].byType[d.product_type]) {
+      byFlavor[d.flavor_name].byType[d.product_type] = [];
+    }
+    byFlavor[d.flavor_name].byType[d.product_type].push(d.closing_count || 0);
+    // Track total stock per date for trend calculation
     byFlavor[d.flavor_name].dates[d.date] = (byFlavor[d.flavor_name].dates[d.date] || 0) + (d.closing_count || 0);
   });
 
@@ -3775,13 +3785,14 @@ function renderTrendSummary(data) {
   const rows = Object.entries(byFlavor)
     .sort((a, b) => b[1].totalConsumed - a[1].totalConsumed)
     .map(([name, info]) => {
-      const dailyTotals = Object.values(info.dates);
-      const numDays = dailyTotals.length || 1;
-      const avg = (dailyTotals.reduce((s, v) => s + v, 0) / numDays).toFixed(1);
-      const low = Math.min(...dailyTotals);
-      const high = Math.max(...dailyTotals);
+      // Average closing stock per product type
+      const avgType = (type) => {
+        const vals = info.byType[type];
+        if (!vals || !vals.length) return '—';
+        return (vals.reduce((s, v) => s + v, 0) / vals.length).toFixed(1);
+      };
 
-      // Trend: compare first half avg stock to second half
+      // Trend: compare first half avg total stock to second half
       const firstSum = firstHalf.reduce((s, d) => s + (info.dates[d] || 0), 0);
       const secondSum = secondHalf.reduce((s, d) => s + (info.dates[d] || 0), 0);
       const firstAvg = firstHalf.length ? firstSum / firstHalf.length : 0;
@@ -3801,9 +3812,9 @@ function renderTrendSummary(data) {
 
       return `<tr>
         <td>${esc(name)}</td>
-        <td>${avg}</td>
-        <td>${low}</td>
-        <td>${high}</td>
+        <td>${avgType('tub')}</td>
+        <td>${avgType('pint')}</td>
+        <td>${avgType('quart')}</td>
         <td class="${trendClass}">${trendArrow}</td>
       </tr>`;
     });
@@ -3815,7 +3826,7 @@ function renderTrendSummary(data) {
 
   wrap.innerHTML = `
     <table class="report-table">
-      <thead><tr><th>Flavor</th><th>Avg/Night</th><th>Low</th><th>High</th><th>Trend</th></tr></thead>
+      <thead><tr><th>Flavor</th><th>Tubs</th><th>Pints</th><th>Quarts</th><th>Trend</th></tr></thead>
       <tbody>${rows.join('')}</tbody>
     </table>`;
 }
@@ -4267,23 +4278,24 @@ function getReportData(reportName) {
       const data = reportCache.consumption;
       const byFlavor = {};
       data.forEach(d => {
-        if (!byFlavor[d.flavor_name]) byFlavor[d.flavor_name] = { totalConsumed: 0, dates: {} };
+        if (!byFlavor[d.flavor_name]) byFlavor[d.flavor_name] = { totalConsumed: 0, byType: {} };
         byFlavor[d.flavor_name].totalConsumed += d.consumed;
-        byFlavor[d.flavor_name].dates[d.date] = (byFlavor[d.flavor_name].dates[d.date] || 0) + (d.closing_count || 0);
+        if (!byFlavor[d.flavor_name].byType[d.product_type]) {
+          byFlavor[d.flavor_name].byType[d.product_type] = [];
+        }
+        byFlavor[d.flavor_name].byType[d.product_type].push(d.closing_count || 0);
       });
+      const avgType = (info, type) => {
+        const vals = info.byType[type];
+        if (!vals || !vals.length) return '—';
+        return (vals.reduce((s, v) => s + v, 0) / vals.length).toFixed(1);
+      };
       const rows = Object.entries(byFlavor)
         .sort((a, b) => b[1].totalConsumed - a[1].totalConsumed)
-        .map(([name, info]) => {
-          const dailyTotals = Object.values(info.dates);
-          const numDays = dailyTotals.length || 1;
-          const avg = (dailyTotals.reduce((s, v) => s + v, 0) / numDays).toFixed(1);
-          const low = Math.min(...dailyTotals);
-          const high = Math.max(...dailyTotals);
-          return [name, avg, low, high];
-        });
+        .map(([name, info]) => [name, avgType(info, 'tub'), avgType(info, 'pint'), avgType(info, 'quart')]);
       return {
         title: `Nightly Stock Levels (${reportDays} Days)`,
-        headers: ['Flavor', 'Avg/Night', 'Low', 'High'],
+        headers: ['Flavor', 'Tubs', 'Pints', 'Quarts'],
         rows,
         chartCanvas: document.getElementById('trend-chart'),
       };
