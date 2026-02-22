@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func, desc
+from sqlalchemy import func, desc, and_
+from collections import defaultdict
 from datetime import datetime, timedelta
 import math
 from database import get_db
@@ -14,8 +15,50 @@ def current_inventory(db: Session = Depends(get_db)):
     """Current on-hand inventory per flavor per product type,
     based on last count + production since last count."""
     flavors = db.query(Flavor).filter(Flavor.status == 'active').order_by(Flavor.category, Flavor.name).all()
-    inventory = []
+    if not flavors:
+        return []
 
+    flavor_ids = [f.id for f in flavors]
+
+    # Bulk: latest count per (flavor_id, product_type) — 1 query
+    max_time = (
+        db.query(
+            DailyCount.flavor_id,
+            DailyCount.product_type,
+            func.max(DailyCount.counted_at).label('max_at')
+        )
+        .filter(DailyCount.flavor_id.in_(flavor_ids))
+        .group_by(DailyCount.flavor_id, DailyCount.product_type)
+        .subquery()
+    )
+    latest_rows = (
+        db.query(
+            DailyCount.flavor_id, DailyCount.product_type,
+            DailyCount.count, DailyCount.counted_at,
+        )
+        .join(max_time, and_(
+            DailyCount.flavor_id == max_time.c.flavor_id,
+            DailyCount.product_type == max_time.c.product_type,
+            DailyCount.counted_at == max_time.c.max_at,
+        ))
+        .all()
+    )
+    count_map = {(r.flavor_id, r.product_type): (r.count, r.counted_at) for r in latest_rows}
+
+    # Bulk: all production for active flavors, filter in Python — 1 query
+    all_prod = (
+        db.query(Production.flavor_id, Production.product_type, Production.quantity, Production.logged_at)
+        .filter(Production.flavor_id.in_(flavor_ids))
+        .all()
+    )
+    prod_map = {}
+    for p in all_prod:
+        key = (p.flavor_id, p.product_type)
+        cutoff = count_map.get(key, (0, datetime.min))[1]
+        if p.logged_at > cutoff:
+            prod_map[key] = prod_map.get(key, 0) + p.quantity
+
+    inventory = []
     for flavor in flavors:
         flavor_data = {
             "flavor_id": flavor.id,
@@ -24,32 +67,9 @@ def current_inventory(db: Session = Depends(get_db)):
             "products": {},
         }
         for ptype in ("tub", "pint", "quart"):
-            last_count_row = (
-                db.query(DailyCount)
-                .filter(
-                    DailyCount.flavor_id == flavor.id,
-                    DailyCount.product_type == ptype,
-                )
-                .order_by(desc(DailyCount.counted_at))
-                .first()
-            )
-            last_count = last_count_row.count if last_count_row else 0
-            last_count_time = (
-                last_count_row.counted_at
-                if last_count_row
-                else datetime.min
-            )
-
-            produced_since = (
-                db.query(func.coalesce(func.sum(Production.quantity), 0))
-                .filter(
-                    Production.flavor_id == flavor.id,
-                    Production.product_type == ptype,
-                    Production.logged_at > last_count_time,
-                )
-                .scalar()
-            )
-
+            key = (flavor.id, ptype)
+            last_count = count_map.get(key, (0, None))[0]
+            produced_since = prod_map.get(key, 0)
             flavor_data["products"][ptype] = {
                 "on_hand": last_count + produced_since,
                 "last_count": last_count,
@@ -184,43 +204,51 @@ def daily_consumption(days: int = Query(7, ge=1, le=90), db: Session = Depends(g
     """
     since = datetime.utcnow() - timedelta(days=days)
     flavors = db.query(Flavor).filter(Flavor.active == True).all()
-    consumption_data = []
+    if not flavors:
+        return []
 
-    for flavor in flavors:
-        for ptype in ("tub", "pint", "quart"):
-            counts = (
-                db.query(DailyCount)
-                .filter(
-                    DailyCount.flavor_id == flavor.id,
-                    DailyCount.product_type == ptype,
-                    DailyCount.counted_at >= since,
-                )
-                .order_by(DailyCount.counted_at)
-                .all()
+    flavor_ids = [f.id for f in flavors]
+    flavor_names = {f.id: f.name for f in flavors}
+
+    # Bulk: all counts since date — 1 query
+    all_counts = (
+        db.query(DailyCount)
+        .filter(DailyCount.flavor_id.in_(flavor_ids), DailyCount.counted_at >= since)
+        .order_by(DailyCount.flavor_id, DailyCount.product_type, DailyCount.counted_at)
+        .all()
+    )
+    counts_by_key = defaultdict(list)
+    for c in all_counts:
+        counts_by_key[(c.flavor_id, c.product_type)].append(c)
+
+    # Bulk: all production since date — 1 query
+    all_prod = (
+        db.query(Production.flavor_id, Production.product_type, Production.quantity, Production.logged_at)
+        .filter(Production.flavor_id.in_(flavor_ids), Production.logged_at >= since)
+        .all()
+    )
+    prod_by_key = defaultdict(list)
+    for p in all_prod:
+        prod_by_key[(p.flavor_id, p.product_type)].append(p)
+
+    consumption_data = []
+    for (fid, ptype), counts in counts_by_key.items():
+        prods = prod_by_key.get((fid, ptype), [])
+        for i in range(1, len(counts)):
+            prev = counts[i - 1]
+            curr = counts[i]
+            prod_between = sum(
+                p.quantity for p in prods
+                if prev.counted_at < p.logged_at <= curr.counted_at
             )
-            for i in range(1, len(counts)):
-                prev = counts[i - 1]
-                curr = counts[i]
-                prod_between = (
-                    db.query(func.coalesce(func.sum(Production.quantity), 0))
-                    .filter(
-                        Production.flavor_id == flavor.id,
-                        Production.product_type == ptype,
-                        Production.logged_at > prev.counted_at,
-                        Production.logged_at <= curr.counted_at,
-                    )
-                    .scalar()
-                )
-                consumed = prev.count + prod_between - curr.count
-                consumption_data.append(
-                    {
-                        "flavor_id": flavor.id,
-                        "flavor_name": flavor.name,
-                        "product_type": ptype,
-                        "consumed": max(0, consumed),
-                        "date": curr.counted_at.strftime("%Y-%m-%d") if curr.counted_at else None,
-                    }
-                )
+            consumed = prev.count + prod_between - curr.count
+            consumption_data.append({
+                "flavor_id": fid,
+                "flavor_name": flavor_names.get(fid, "Unknown"),
+                "product_type": ptype,
+                "consumed": max(0, consumed),
+                "date": curr.counted_at.strftime("%Y-%m-%d") if curr.counted_at else None,
+            })
 
     return consumption_data
 
