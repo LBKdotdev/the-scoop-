@@ -2672,7 +2672,14 @@ function renderCountForm() {
   const catFilter = document.getElementById('count-category-filter').value;
   const typeFilter = document.getElementById('count-type-filter').value;
 
-  let filtered = smartDefaults;
+  // Deduplicate: keep only first occurrence of each flavor_id + product_type
+  const seen = new Set();
+  let filtered = smartDefaults.filter(d => {
+    const key = `${d.flavor_id}-${d.product_type}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
   if (catFilter !== 'all') filtered = filtered.filter(d => d.category === catFilter);
   if (typeFilter === 'pints-quarts') {
     filtered = filtered.filter(d => d.product_type === 'pint' || d.product_type === 'quart');
