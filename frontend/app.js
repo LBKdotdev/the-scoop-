@@ -3251,7 +3251,7 @@ async function loadDashboard() {
     renderAtRisk(atRisk);
     renderInventoryTable();
     renderPopularityChart(popularity);
-    const hasProduction = pvc.some(d => d.produced > 0);
+    const hasProduction = pvc.some(d => d.produced > 0) && pvc.some(d => d.consumed > 0);
     renderPvcChart(pvc, hasProduction);
   } catch (e) {
     console.error('Dashboard load failed:', e);
@@ -3669,7 +3669,7 @@ async function loadReports() {
     reportCache.variance = variance;
     reportCache.employeePerformance = empPerf;
 
-    const hasProduction = waste.some(w => w.produced > 0);
+    const hasProduction = waste.some(w => w.produced > 0) && waste.some(w => w.consumed > 0);
 
     renderVarianceReport(variance);
     renderTrendChart(consumption);
@@ -3907,7 +3907,7 @@ function renderWasteTable(data, hasProduction) {
 
   wrap.innerHTML = `
     <table class="report-table">
-      <thead><tr><th>Flavor</th><th>Produced</th><th>Consumed</th><th>Surplus</th></tr></thead>
+      <thead><tr><th>Flavor</th><th>Made</th><th>Sold</th><th>+/\u2212</th></tr></thead>
       <tbody>${rows.join('')}</tbody>
     </table>`;
 }
@@ -4304,7 +4304,7 @@ function getReportData(reportName) {
       const data = reportCache.waste;
       return {
         title: `Production Summary (${reportDays} Days)`,
-        headers: ['Flavor', 'Produced', 'Consumed', 'Surplus'],
+        headers: ['Flavor', 'Made', 'Sold', '+/-'],
         rows: data.map(d => [d.flavor_name, d.produced, d.consumed, d.surplus]),
         chartCanvas: document.getElementById('waste-chart'),
       };
