@@ -2205,12 +2205,12 @@ function renderParSetup() {
                   onchange="updateParEdit('${key}', 'minimum', this.value)">
               </div>
               <div class="par-field">
-                <label>One batch makes</label>
+                <label>First batch makes</label>
                 <input type="number" inputmode="decimal" min="0.25" step="0.25" value="${ed.batch_size}"
                   onchange="updateParEdit('${key}', 'batch_size', this.value)">
               </div>
               <div class="par-field">
-                <label>Addl. batch makes</label>
+                <label>Next batches make</label>
                 <input type="number" inputmode="decimal" min="0" step="0.25" value="${ed.subsequent_batch_size}"
                   placeholder="—"
                   onchange="updateParEdit('${key}', 'subsequent_batch_size', this.value)">
