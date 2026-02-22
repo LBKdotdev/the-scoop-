@@ -42,18 +42,40 @@ def submit_counts(batch: CountBatch, db: Session = Depends(get_db)):
 
         # Use provided timestamp or default to now
         counted_at = entry.counted_at if entry.counted_at else datetime.utcnow()
+        count_date = counted_at.date() if isinstance(counted_at, datetime) else counted_at
 
-        record = DailyCount(
-            flavor_id=entry.flavor_id,
-            product_type=entry.product_type,
-            count=entry.count,
-            predicted_count=entry.predicted_count,
-            variance=variance,
-            variance_pct=variance_pct,
-            employee_name=entry.employee_name,
-            counted_at=counted_at,
+        # Upsert: update existing entry for same flavor/type/date instead of creating duplicates
+        existing = (
+            db.query(DailyCount)
+            .filter(
+                DailyCount.flavor_id == entry.flavor_id,
+                DailyCount.product_type == entry.product_type,
+                func.date(DailyCount.counted_at) == count_date,
+            )
+            .first()
         )
-        db.add(record)
+
+        if existing:
+            existing.count = entry.count
+            existing.predicted_count = entry.predicted_count
+            existing.variance = variance
+            existing.variance_pct = variance_pct
+            existing.employee_name = entry.employee_name
+            existing.counted_at = counted_at
+            record = existing
+        else:
+            record = DailyCount(
+                flavor_id=entry.flavor_id,
+                product_type=entry.product_type,
+                count=entry.count,
+                predicted_count=entry.predicted_count,
+                variance=variance,
+                variance_pct=variance_pct,
+                employee_name=entry.employee_name,
+                counted_at=counted_at,
+            )
+            db.add(record)
+
         saved.append(record)
         flavor_ids_to_update.add(entry.flavor_id)
 
