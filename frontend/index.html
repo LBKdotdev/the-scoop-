@@ -141,6 +141,11 @@
           <input type="text" id="prod-employee-name" placeholder="e.g., Audrey AH or Napoleon ND" maxlength="50" required>
         </div>
 
+        <div class="employee-input-wrap">
+          <label for="prod-date">Production Date</label>
+          <input type="date" id="prod-date" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border); border-radius: 8px; background: var(--input-bg); color: var(--text); font-size: 1rem; margin-bottom: 1rem;">
+        </div>
+
         <div class="voice-input-section">
           <div class="voice-controls-row">
             <button type="button" class="btn btn-secondary" id="prod-voice-input-btn" onclick="toggleProductionVoiceInput()">
@@ -406,7 +411,7 @@
     </div>
 
     <div class="card">
-      <h2>📈 Consumption Trends <button class="export-btn" onclick="toggleExportDropdown(event, 'trend')">Export &#9662;</button></h2>
+      <h2>📈 Nightly Stock Levels <button class="export-btn" onclick="toggleExportDropdown(event, 'trend')">Export &#9662;</button></h2>
       <canvas id="trend-chart"></canvas>
       <div id="trend-summary" class="table-wrap"></div>
     </div>

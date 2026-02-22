@@ -33,11 +33,15 @@ function init() {
   initTypeToggles();
   setupEmployeeNameListener();
 
-  // Set count date to today by default
+  // Set count date and production date to today by default
+  const today = new Date().toISOString().split('T')[0];
   const countDateInput = document.getElementById('count-date');
   if (countDateInput) {
-    const today = new Date().toISOString().split('T')[0];
     countDateInput.value = today;
+  }
+  const prodDateInput = document.getElementById('prod-date');
+  if (prodDateInput) {
+    prodDateInput.value = today;
   }
 
   loadFlavors().then(() => {
@@ -2558,20 +2562,29 @@ async function submitProductionBatch(e) {
   const confirmed = await showProductionBatchConfirmModal(entriesToSubmit);
   if (!confirmed) return;
 
+  // Build logged_at if a past date is selected
+  const prodDateVal = document.getElementById('prod-date')?.value;
+  const todayStr = new Date().toISOString().split('T')[0];
+  const loggedAt = (prodDateVal && prodDateVal !== todayStr)
+    ? `${prodDateVal}T08:00:00Z`
+    : null;
+
   // Submit all entries
   let successCount = 0;
   let failCount = 0;
 
   for (const entry of entriesToSubmit) {
     try {
+      const body = {
+        flavor_id: entry.flavor_id,
+        product_type: entry.product_type,
+        quantity: entry.quantity,
+        employee_name: entry.employee_name
+      };
+      if (loggedAt) body.logged_at = loggedAt;
       await api('/api/production', {
         method: 'POST',
-        body: JSON.stringify({
-          flavor_id: entry.flavor_id,
-          product_type: entry.product_type,
-          quantity: entry.quantity,
-          employee_name: entry.employee_name
-        })
+        body: JSON.stringify(body)
       });
       successCount++;
     } catch (e) {
@@ -3236,7 +3249,8 @@ async function loadDashboard() {
     renderAtRisk(atRisk);
     renderInventoryTable();
     renderPopularityChart(popularity);
-    renderPvcChart(pvc);
+    const hasProduction = pvc.some(d => d.produced > 0);
+    renderPvcChart(pvc, hasProduction);
   } catch (e) {
     console.error('Dashboard load failed:', e);
   }
@@ -3480,9 +3494,23 @@ function renderPopularityChart(data) {
   });
 }
 
-function renderPvcChart(data) {
+function renderPvcChart(data, hasProduction) {
   const ctx = document.getElementById('pvc-chart');
   if (pvcChart) pvcChart.destroy();
+
+  // Clean up any previous production warning
+  const oldWarning = ctx.parentElement.querySelector('.production-warning');
+  if (oldWarning) oldWarning.remove();
+
+  if (!hasProduction) {
+    pvcChart = null;
+    ctx.style.display = 'none';
+    ctx.insertAdjacentHTML('beforebegin',
+      '<div class="alert-warning production-warning" style="padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 1rem; font-size: 0.85rem;">' +
+      '\u26a0\ufe0f This chart activates once production entries are being logged alongside nightly counts.</div>');
+    return;
+  }
+  ctx.style.display = '';
 
   // Aggregate by flavor
   const byFlavor = {};
@@ -3639,11 +3667,13 @@ async function loadReports() {
     reportCache.variance = variance;
     reportCache.employeePerformance = empPerf;
 
+    const hasProduction = waste.some(w => w.produced > 0);
+
     renderVarianceReport(variance);
     renderTrendChart(consumption);
     renderTrendSummary(consumption);
-    renderWasteChart(waste);
-    renderWasteTable(waste);
+    renderWasteChart(waste, hasProduction);
+    renderWasteTable(waste, hasProduction);
     renderCategoryChart(popularity);
     renderCategoryTable(popularity);
     renderParAccuracy(parAcc);
@@ -3665,17 +3695,17 @@ function renderTrendChart(data) {
   }
   ctx.style.display = '';
 
-  // Aggregate by flavor and date
+  // Aggregate closing stock levels by flavor and date
   const byFlavor = {};
   data.forEach(d => {
-    if (!byFlavor[d.flavor_name]) byFlavor[d.flavor_name] = { total: 0, dates: {} };
-    byFlavor[d.flavor_name].total += d.consumed;
-    byFlavor[d.flavor_name].dates[d.date] = (byFlavor[d.flavor_name].dates[d.date] || 0) + d.consumed;
+    if (!byFlavor[d.flavor_name]) byFlavor[d.flavor_name] = { totalConsumed: 0, dates: {} };
+    byFlavor[d.flavor_name].totalConsumed += d.consumed;
+    byFlavor[d.flavor_name].dates[d.date] = (byFlavor[d.flavor_name].dates[d.date] || 0) + (d.closing_count || 0);
   });
 
-  // Top 5 by total consumption
+  // Top 5 most active flavors (by consumption), then plot their stock levels
   const top5 = Object.entries(byFlavor)
-    .sort((a, b) => b[1].total - a[1].total)
+    .sort((a, b) => b[1].totalConsumed - a[1].totalConsumed)
     .slice(0, 5);
 
   // All unique dates, sorted
@@ -3725,23 +3755,16 @@ function renderTrendSummary(data) {
   const wrap = document.getElementById('trend-summary');
 
   if (!data.length) {
-    wrap.innerHTML = '<p class="muted">No consumption data for this period.</p>';
+    wrap.innerHTML = '<p class="muted">No count data for this period.</p>';
     return;
   }
 
-  // Aggregate by flavor and product type
+  // Aggregate closing stock levels by flavor and date
   const byFlavor = {};
   data.forEach(d => {
-    if (!byFlavor[d.flavor_name]) {
-      byFlavor[d.flavor_name] = {
-        total: 0,
-        dates: {},
-        byType: { tub: 0, pint: 0, quart: 0 }
-      };
-    }
-    byFlavor[d.flavor_name].total += d.consumed;
-    byFlavor[d.flavor_name].dates[d.date] = (byFlavor[d.flavor_name].dates[d.date] || 0) + d.consumed;
-    byFlavor[d.flavor_name].byType[d.product_type] = (byFlavor[d.flavor_name].byType[d.product_type] || 0) + d.consumed;
+    if (!byFlavor[d.flavor_name]) byFlavor[d.flavor_name] = { totalConsumed: 0, dates: {} };
+    byFlavor[d.flavor_name].totalConsumed += d.consumed;
+    byFlavor[d.flavor_name].dates[d.date] = (byFlavor[d.flavor_name].dates[d.date] || 0) + (d.closing_count || 0);
   });
 
   const allDates = [...new Set(data.map(d => d.date))].sort();
@@ -3750,12 +3773,15 @@ function renderTrendSummary(data) {
   const secondHalf = allDates.slice(midpoint);
 
   const rows = Object.entries(byFlavor)
-    .sort((a, b) => b[1].total - a[1].total)
+    .sort((a, b) => b[1].totalConsumed - a[1].totalConsumed)
     .map(([name, info]) => {
-      const numDays = Object.keys(info.dates).length || 1;
-      const avg = (info.total / numDays).toFixed(1);
+      const dailyTotals = Object.values(info.dates);
+      const numDays = dailyTotals.length || 1;
+      const avg = (dailyTotals.reduce((s, v) => s + v, 0) / numDays).toFixed(1);
+      const low = Math.min(...dailyTotals);
+      const high = Math.max(...dailyTotals);
 
-      // Trend: compare first half avg to second half avg
+      // Trend: compare first half avg stock to second half
       const firstSum = firstHalf.reduce((s, d) => s + (info.dates[d] || 0), 0);
       const secondSum = secondHalf.reduce((s, d) => s + (info.dates[d] || 0), 0);
       const firstAvg = firstHalf.length ? firstSum / firstHalf.length : 0;
@@ -3773,34 +3799,43 @@ function renderTrendSummary(data) {
         trendArrow = '\u2192';
       }
 
-      const tubDisplay = info.byType.tub ? formatTubCount(info.byType.tub) : '0';
-
       return `<tr>
         <td>${esc(name)}</td>
         <td>${avg}</td>
-        <td>${tubDisplay}</td>
-        <td>${info.byType.pint || 0}</td>
-        <td>${info.byType.quart || 0}</td>
-        <td>${info.total}</td>
+        <td>${low}</td>
+        <td>${high}</td>
         <td class="${trendClass}">${trendArrow}</td>
       </tr>`;
     });
 
   if (!rows.length) {
-    wrap.innerHTML = '<p class="muted">No consumption data for this period.</p>';
+    wrap.innerHTML = '<p class="muted">No count data for this period.</p>';
     return;
   }
 
   wrap.innerHTML = `
     <table class="report-table">
-      <thead><tr><th>Flavor</th><th>Avg/Day</th><th>Tubs</th><th>Pints</th><th>Quarts</th><th>Total</th><th>Trend</th></tr></thead>
+      <thead><tr><th>Flavor</th><th>Avg/Night</th><th>Low</th><th>High</th><th>Trend</th></tr></thead>
       <tbody>${rows.join('')}</tbody>
     </table>`;
 }
 
-function renderWasteChart(data) {
+function renderWasteChart(data, hasProduction) {
   const ctx = document.getElementById('waste-chart');
   if (wasteChart) wasteChart.destroy();
+
+  // Clean up any previous production warning
+  const oldWarning = ctx.parentElement.querySelector('.production-warning');
+  if (oldWarning) oldWarning.remove();
+
+  if (!hasProduction) {
+    wasteChart = null;
+    ctx.style.display = 'none';
+    ctx.insertAdjacentHTML('beforebegin',
+      '<div class="alert-warning production-warning" style="padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 1rem; font-size: 0.85rem;">' +
+      '\u26a0\ufe0f This report activates once production entries are being logged alongside nightly counts.</div>');
+    return;
+  }
 
   const filtered = data.slice(0, 10);
   if (!filtered.length) {
@@ -3837,8 +3872,13 @@ function renderWasteChart(data) {
   });
 }
 
-function renderWasteTable(data) {
+function renderWasteTable(data, hasProduction) {
   const wrap = document.getElementById('waste-table');
+
+  if (!hasProduction) {
+    wrap.innerHTML = '';
+    return;
+  }
 
   if (!data.length) {
     wrap.innerHTML = '<p class="muted">No production/consumption data for this period.</p>';
@@ -4227,34 +4267,23 @@ function getReportData(reportName) {
       const data = reportCache.consumption;
       const byFlavor = {};
       data.forEach(d => {
-        if (!byFlavor[d.flavor_name]) {
-          byFlavor[d.flavor_name] = {
-            total: 0,
-            dates: {},
-            byType: { tub: 0, pint: 0, quart: 0 }
-          };
-        }
-        byFlavor[d.flavor_name].total += d.consumed;
-        byFlavor[d.flavor_name].dates[d.date] = (byFlavor[d.flavor_name].dates[d.date] || 0) + d.consumed;
-        byFlavor[d.flavor_name].byType[d.product_type] = (byFlavor[d.flavor_name].byType[d.product_type] || 0) + d.consumed;
+        if (!byFlavor[d.flavor_name]) byFlavor[d.flavor_name] = { totalConsumed: 0, dates: {} };
+        byFlavor[d.flavor_name].totalConsumed += d.consumed;
+        byFlavor[d.flavor_name].dates[d.date] = (byFlavor[d.flavor_name].dates[d.date] || 0) + (d.closing_count || 0);
       });
       const rows = Object.entries(byFlavor)
-        .sort((a, b) => b[1].total - a[1].total)
+        .sort((a, b) => b[1].totalConsumed - a[1].totalConsumed)
         .map(([name, info]) => {
-          const numDays = Object.keys(info.dates).length || 1;
-          const tubDisplay = info.byType.tub ? formatTubCount(info.byType.tub) : '0';
-          return [
-            name,
-            (info.total / numDays).toFixed(1),
-            tubDisplay,
-            info.byType.pint || 0,
-            info.byType.quart || 0,
-            info.total
-          ];
+          const dailyTotals = Object.values(info.dates);
+          const numDays = dailyTotals.length || 1;
+          const avg = (dailyTotals.reduce((s, v) => s + v, 0) / numDays).toFixed(1);
+          const low = Math.min(...dailyTotals);
+          const high = Math.max(...dailyTotals);
+          return [name, avg, low, high];
         });
       return {
-        title: `Consumption Trends (${reportDays} Days)`,
-        headers: ['Flavor', 'Avg/Day', 'Tubs', 'Pints', 'Quarts', 'Total'],
+        title: `Nightly Stock Levels (${reportDays} Days)`,
+        headers: ['Flavor', 'Avg/Night', 'Low', 'High'],
         rows,
         chartCanvas: document.getElementById('trend-chart'),
       };

@@ -247,6 +247,7 @@ def daily_consumption(days: int = Query(7, ge=1, le=90), db: Session = Depends(g
                 "flavor_name": flavor_names.get(fid, "Unknown"),
                 "product_type": ptype,
                 "consumed": max(0, consumed),
+                "closing_count": curr.count,
                 "date": curr.counted_at.strftime("%Y-%m-%d") if curr.counted_at else None,
             })
 
