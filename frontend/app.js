@@ -2382,6 +2382,12 @@ function renderProductionForm() {
     byFlavor[d.flavor_id].types.push(d);
   });
 
+  // Sort product types: tub, pint, quart
+  const typeOrder = { tub: 0, pint: 1, quart: 2 };
+  Object.values(byFlavor).forEach(f => {
+    f.types.sort((a, b) => (typeOrder[a.product_type] ?? 9) - (typeOrder[b.product_type] ?? 9));
+  });
+
   // Group by category
   const byCat = {};
   Object.values(byFlavor).forEach(f => {
@@ -2666,6 +2672,12 @@ function renderCountForm() {
       byFlavor[d.flavor_id] = { name: d.flavor_name, category: d.category, types: [] };
     }
     byFlavor[d.flavor_id].types.push(d);
+  });
+
+  // Sort product types: tub, pint, quart
+  const typeOrder = { tub: 0, pint: 1, quart: 2 };
+  Object.values(byFlavor).forEach(f => {
+    f.types.sort((a, b) => (typeOrder[a.product_type] ?? 9) - (typeOrder[b.product_type] ?? 9));
   });
 
   // Group by category
