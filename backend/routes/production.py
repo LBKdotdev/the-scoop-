@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from pydantic import BaseModel
+from typing import Optional
 from datetime import datetime, timedelta
 from database import get_db
 from models import Production, Flavor
@@ -14,6 +15,7 @@ class ProductionCreate(BaseModel):
     product_type: str  # tub, pint, quart
     quantity: float  # Changed to float for fractional tubs (e.g., 2.5)
     employee_name: str = None  # Who logged this production
+    logged_at: Optional[str] = None  # ISO datetime string for backdated entries
 
 
 @router.post("", status_code=201)
@@ -31,6 +33,8 @@ def log_production(entry: ProductionCreate, db: Session = Depends(get_db)):
         quantity=entry.quantity,
         employee_name=entry.employee_name,
     )
+    if entry.logged_at:
+        record.logged_at = datetime.fromisoformat(entry.logged_at.replace("Z", "+00:00"))
     db.add(record)
     db.commit()
     db.refresh(record)
