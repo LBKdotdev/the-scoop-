@@ -4697,9 +4697,13 @@ async function submitPhotoImport() {
     const checkbox = document.querySelector(`.photo-date-check[data-date-idx="${di}"]`);
     if (!checkbox || !checkbox.checked) return;
 
-    // Get initials
+    // Get initials — fall back to main employee name if per-column field is empty
     const initialsInput = document.querySelector(`.photo-initials-input[data-date-idx="${di}"]`);
-    const initials = initialsInput ? initialsInput.value.trim() : '';
+    let initials = initialsInput ? initialsInput.value.trim() : '';
+    if (!initials) {
+      const mainName = document.getElementById('employee-name');
+      initials = mainName ? mainName.value.trim() : '';
+    }
 
     // Get counted_at timestamp
     const countedAt = dateObj.date ? dateObj.date + 'T21:00:00Z' : null;
