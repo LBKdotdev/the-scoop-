@@ -2067,10 +2067,7 @@ function groupByCategory(items) {
   return groups;
 }
 
-const FLAVOR_CATEGORIES = [
-  'Classics', 'Fruity', 'Chocolate', 'Nutty', 'Cookie & Fun',
-  'Sweet & Fun', 'Specials', 'Specialty', 'Seasonal', 'Dairy Free'
-];
+const FLAVOR_CATEGORIES = ['Regular', 'Specials', 'Dairy Free'];
 
 function renderFlavorList() {
   const wrap = document.getElementById('flavor-list');
