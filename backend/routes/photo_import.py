@@ -278,8 +278,8 @@ def _do_parse(request: PhotoParseRequest, db: Session):
                     flavor_matched_name=matched_name,
                     flavor_id=flavor_id,
                     product_type=entry.get("product_type", "tub"),
-                    count=float(entry.get("count", 0)),
-                    confidence=float(entry.get("confidence", 0.5)),
+                    count=float(entry.get("count") or 0),
+                    confidence=float(entry.get("confidence") or 0.5),
                 )
             )
 
