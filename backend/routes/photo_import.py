@@ -42,7 +42,11 @@ class PhotoParseResponse(BaseModel):
     warnings: List[str]
 
 
-VISION_PROMPT = """You are analyzing a photograph of a handwritten ice cream inventory count sheet.
+def build_vision_prompt(available_flavors: List[str]) -> str:
+    """Build the vision prompt with available flavor names for better matching."""
+    flavors_list = "\n".join(f"- {name}" for name in sorted(available_flavors))
+
+    return f"""You are analyzing a photograph of a handwritten ice cream inventory count sheet.
 
 AUTO-DETECT the sheet type from headers:
 - "Inventory" or similar → Tub Inventory Sheet (tubs)
@@ -79,32 +83,45 @@ CONFIDENCE SCORING:
 IMPORTANT:
 - Skip empty/blank cells entirely (do not include them)
 - Flavor names may span MULTIPLE LINES in the left column (e.g., "Banana" on one line and "Marshmallow" on the next = one flavor "Banana Marshmallow"). Combine them into a single flavor name. Do NOT create separate entries for each line of a multi-line flavor name.
-- Read flavor names exactly as written on the sheet
 - If a cell is crossed out or has corrections, use the final/corrected value
 
+SECTION HEADERS — CRITICAL:
+- The sheet may have section headers like "Dairy Free", "Sorbet", or "Vegan" that group flavors beneath them.
+- These headers are NOT flavors themselves — they are categories. Do NOT create entries for them.
+- Flavors listed under a section header should have that header PREPENDED to their name.
+  Example: Under a "Dairy Free" header, "Vanilla" → "Dairy Free Vanilla", "Strawberry" → "Dairy Free Strawberry"
+- After combining the section header with the flavor name, verify the result matches one of the available flavors listed below.
+- If a flavor is NOT under any section header, use the name as written on the sheet.
+
+AVAILABLE FLAVORS (use these exact names in flavor_name):
+{flavors_list}
+
+Match each handwritten flavor name to the closest available flavor from the list above. Use the exact spelling from the list.
+
 Respond with ONLY valid JSON in this exact format (no markdown, no explanation):
-{
+{{
   "sheet_type": "tubs" or "pints_quarts",
   "dates": [
-    {
+    {{
       "date": "2026-02-09",
       "employee_initials": "MG" or null,
       "entries": [
-        {
+        {{
           "flavor_name": "Sweet Cream",
           "product_type": "tub",
           "count": 6.75,
           "confidence": 0.95
-        }
+        }}
       ]
-    }
+    }}
   ],
   "warnings": ["any issues or notes about the scan"]
-}"""
+}}"""
 
 
-def parse_with_groq(image_base64: str) -> str:
+def parse_with_groq(image_base64: str, available_flavors: List[str]) -> str:
     """Parse sheet image using Groq Vision (Llama 4 Scout). Returns raw JSON text."""
+    prompt = build_vision_prompt(available_flavors)
     response = requests.post(
         GROQ_API_URL,
         headers={
@@ -125,7 +142,7 @@ def parse_with_groq(image_base64: str) -> str:
                         },
                         {
                             "type": "text",
-                            "text": VISION_PROMPT,
+                            "text": prompt,
                         },
                     ],
                 }
@@ -144,7 +161,7 @@ def parse_with_groq(image_base64: str) -> str:
     return result["choices"][0]["message"]["content"].strip()
 
 
-def parse_with_claude(image_base64: str) -> str:
+def parse_with_claude(image_base64: str, available_flavors: List[str]) -> str:
     """Fallback: parse sheet image using Claude Vision. Returns raw JSON text."""
     from ai_insights import get_client
 
@@ -152,6 +169,7 @@ def parse_with_claude(image_base64: str) -> str:
     if not client:
         raise Exception("ANTHROPIC_API_KEY not configured")
 
+    prompt = build_vision_prompt(available_flavors)
     response = client.messages.create(
         model="claude-sonnet-4-5-20250929",
         max_tokens=4096,
@@ -169,7 +187,7 @@ def parse_with_claude(image_base64: str) -> str:
                     },
                     {
                         "type": "text",
-                        "text": VISION_PROMPT,
+                        "text": prompt,
                     },
                 ],
             }
@@ -220,7 +238,7 @@ def _do_parse(request: PhotoParseRequest, db: Session):
     raw = None
     if GROQ_API_KEY:
         try:
-            text = parse_with_groq(request.image_base64)
+            text = parse_with_groq(request.image_base64, available_names)
             raw = extract_json(text)
         except Exception as e:
             print(f"Groq vision failed: {e}")
@@ -228,7 +246,7 @@ def _do_parse(request: PhotoParseRequest, db: Session):
 
     if raw is None:
         try:
-            text = parse_with_claude(request.image_base64)
+            text = parse_with_claude(request.image_base64, available_names)
             raw = extract_json(text)
         except Exception as e:
             print(f"Claude vision also failed: {e}")
