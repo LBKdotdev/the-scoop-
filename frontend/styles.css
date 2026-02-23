@@ -649,6 +649,15 @@ input[type="number"] { -moz-appearance: textfield; }
   color: var(--red);
 }
 
+.count-history-cat-header {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  padding: 6px 0 2px;
+  letter-spacing: 0.5px;
+}
+
 .count-row {
   display: flex;
   align-items: center;

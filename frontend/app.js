@@ -3008,20 +3008,32 @@ async function loadCountHistory() {
 
     let html = '';
     for (const [date, items] of Object.entries(byDate)) {
-      html += `<div class="count-group-header">${formatDate(date)}</div>`;
-      items.slice(0, 15).forEach(c => {
-        const displayCount = c.product_type === 'tub' ? formatTubCount(c.count) : c.count;
-        html += `
-          <div class="prod-item">
-            <div class="prod-item-info">
-              <strong>${esc(c.flavor_name)}</strong>
-              <span class="prod-item-meta">${c.product_type}</span>
-            </div>
-            <div class="prod-item-qty">${displayCount}</div>
-          </div>`;
+      // Map flavor_id to category using global flavors list
+      const catMap = {};
+      flavors.forEach(f => { catMap[f.id] = f.category; });
+
+      // Group items by category
+      const byCat = {};
+      items.forEach(c => {
+        const cat = catMap[c.flavor_id] || 'Other';
+        if (!byCat[cat]) byCat[cat] = [];
+        byCat[cat].push(c);
       });
-      if (items.length > 15) {
-        html += `<p class="muted">+ ${items.length - 15} more entries</p>`;
+
+      html += `<div class="count-group-header">${formatDate(date)} <span class="muted" style="font-size:0.75em">(${items.length} entries)</span></div>`;
+      for (const [cat, catItems] of Object.entries(byCat)) {
+        html += `<div class="count-history-cat-header">${esc(cat)}</div>`;
+        catItems.forEach(c => {
+          const displayCount = c.product_type === 'tub' ? formatTubCount(c.count) : c.count;
+          html += `
+            <div class="prod-item">
+              <div class="prod-item-info">
+                <strong>${esc(c.flavor_name)}</strong>
+                <span class="prod-item-meta">${c.product_type}</span>
+              </div>
+              <div class="prod-item-qty">${displayCount}</div>
+            </div>`;
+        });
       }
     }
     wrap.innerHTML = html;
