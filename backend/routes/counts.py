@@ -195,6 +195,37 @@ def get_smart_defaults(db: Session = Depends(get_db)):
     return defaults
 
 
+@router.delete("/{count_id}")
+def delete_count(count_id: int, db: Session = Depends(get_db)):
+    record = db.query(DailyCount).filter(DailyCount.id == count_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Count not found")
+    db.delete(record)
+    db.commit()
+    return {"message": f"Deleted count {count_id}"}
+
+
+@router.post("/dedup")
+def dedup_counts(db: Session = Depends(get_db)):
+    """Remove duplicate daily_counts entries, keeping the one with the lowest id."""
+    from sqlalchemy import text
+    # Find all duplicates grouped by (flavor_id, product_type, date)
+    all_counts = db.query(DailyCount).order_by(DailyCount.id).all()
+    seen = {}
+    to_delete = []
+    for c in all_counts:
+        count_date = c.counted_at.date() if c.counted_at else None
+        key = (c.flavor_id, c.product_type, count_date)
+        if key in seen:
+            to_delete.append(c)
+        else:
+            seen[key] = c
+    for c in to_delete:
+        db.delete(c)
+    db.commit()
+    return {"message": f"Removed {len(to_delete)} duplicate entries"}
+
+
 @router.get("/history")
 def count_history(days: int = 7, db: Session = Depends(get_db)):
     since = datetime.utcnow() - timedelta(days=days)
