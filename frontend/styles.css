@@ -1712,6 +1712,16 @@ input.voice-undo-highlight {
 .flavor-item-actions {
   display: flex;
   gap: 4px;
+  align-items: center;
+}
+
+.flavor-cat-edit {
+  font-size: 0.75rem;
+  padding: 2px 4px;
+  border-radius: 4px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
 }
 
 /* ===== AI INSIGHTS ===== */

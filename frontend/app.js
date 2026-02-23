@@ -2067,6 +2067,11 @@ function groupByCategory(items) {
   return groups;
 }
 
+const FLAVOR_CATEGORIES = [
+  'Classics', 'Fruity', 'Chocolate', 'Nutty', 'Cookie & Fun',
+  'Sweet & Fun', 'Specials', 'Specialty', 'Seasonal', 'Dairy Free'
+];
+
 function renderFlavorList() {
   const wrap = document.getElementById('flavor-list');
   if (!flavors.length) {
@@ -2078,18 +2083,35 @@ function renderFlavorList() {
   for (const [cat, items] of Object.entries(grouped)) {
     html += `<div class="count-group-header">${cat}</div>`;
     items.forEach(f => {
+      const catOptions = FLAVOR_CATEGORIES.map(c =>
+        `<option value="${c}"${c === f.category ? ' selected' : ''}>${c}</option>`
+      ).join('');
       html += `
         <div class="flavor-item">
           <div>
             <div class="flavor-item-name">${esc(f.name)}</div>
           </div>
           <div class="flavor-item-actions">
+            <select class="flavor-cat-edit" onchange="updateFlavorCategory(${f.id}, this.value)">${catOptions}</select>
             <button class="btn btn-secondary btn-sm" onclick="archiveFlavor(${f.id}, '${esc(f.name)}')">Archive</button>
           </div>
         </div>`;
     });
   }
   wrap.innerHTML = html;
+}
+
+async function updateFlavorCategory(id, category) {
+  try {
+    await api(`/api/flavors/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ category }),
+    });
+    toast(`Category updated to ${category}`);
+    await loadFlavors();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
 }
 
 async function addFlavor(e) {
