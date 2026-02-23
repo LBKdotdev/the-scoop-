@@ -33,8 +33,9 @@ function init() {
   initTypeToggles();
   setupEmployeeNameListener();
 
-  // Set count date and production date to today by default
-  const today = new Date().toISOString().split('T')[0];
+  // Set count date and production date to today by default (local timezone)
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
   const countDateInput = document.getElementById('count-date');
   if (countDateInput) {
     countDateInput.value = today;
@@ -2566,7 +2567,8 @@ async function submitProductionBatch(e) {
 
   // Build logged_at if a past date is selected
   const prodDateVal = document.getElementById('prod-date')?.value;
-  const todayStr = new Date().toISOString().split('T')[0];
+  const _now = new Date();
+  const todayStr = `${_now.getFullYear()}-${String(_now.getMonth()+1).padStart(2,'0')}-${String(_now.getDate()).padStart(2,'0')}`;
   const loggedAt = (prodDateVal && prodDateVal !== todayStr)
     ? `${prodDateVal}T08:00:00Z`
     : null;
