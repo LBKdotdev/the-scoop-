@@ -4722,7 +4722,14 @@ async function submitPhotoImport() {
     });
   });
 
-  if (allEntries.length === 0) {
+  // Deduplicate by (flavor_id, product_type, counted_at) — keep last occurrence
+  const dedupMap = new Map();
+  allEntries.forEach(e => {
+    dedupMap.set(`${e.flavor_id}-${e.product_type}-${e.counted_at}`, e);
+  });
+  const dedupedEntries = Array.from(dedupMap.values());
+
+  if (dedupedEntries.length === 0) {
     toast('No entries to import.', 'error');
     return;
   }
@@ -4730,9 +4737,9 @@ async function submitPhotoImport() {
   try {
     await api('/api/counts', {
       method: 'POST',
-      body: JSON.stringify({ entries: allEntries }),
+      body: JSON.stringify({ entries: dedupedEntries }),
     });
-    const msg = `Imported ${allEntries.length} counts!` +
+    const msg = `Imported ${dedupedEntries.length} counts!` +
                 (skippedCount > 0 ? ` (${skippedCount} skipped — unmatched flavors)` : '');
     toast(msg);
     closePhotoImportModal();

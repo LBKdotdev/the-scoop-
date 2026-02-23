@@ -78,6 +78,7 @@ CONFIDENCE SCORING:
 
 IMPORTANT:
 - Skip empty/blank cells entirely (do not include them)
+- Flavor names may span MULTIPLE LINES in the left column (e.g., "Banana" on one line and "Marshmallow" on the next = one flavor "Banana Marshmallow"). Combine them into a single flavor name. Do NOT create separate entries for each line of a multi-line flavor name.
 - Read flavor names exactly as written on the sheet
 - If a cell is crossed out or has corrections, use the final/corrected value
 
@@ -263,6 +264,23 @@ def _do_parse(request: PhotoParseRequest, db: Session):
                     confidence=float(entry.get("confidence", 0.5)),
                 )
             )
+
+        # Deduplicate entries that matched the same flavor+product_type
+        # (happens when AI splits multi-line flavor names into separate rows)
+        deduped = {}
+        for e in entries_out:
+            if e.flavor_id is not None:
+                key = (e.flavor_id, e.product_type)
+                if key not in deduped or e.confidence > deduped[key].confidence:
+                    deduped[key] = e
+                else:
+                    warnings.append(
+                        f"Merged duplicate for {e.flavor_matched_name} ({e.product_type})"
+                    )
+            else:
+                # Keep unmatched entries as-is for user review
+                deduped[("unmatched", e.flavor_sheet_name, e.product_type)] = e
+        entries_out = list(deduped.values())
 
         dates_out.append(
             DateResult(
