@@ -107,9 +107,11 @@ def get_smart_defaults(db: Session = Depends(get_db)):
 
     for flavor in flavors:
         for ptype in ("tub", "pint", "quart"):
-            # Skip product types with no par target set
+            # Skip product types with no par target AND no count history
             if (flavor.id, ptype) not in active_pars:
-                continue
+                # Still show tubs for all flavors (always counted)
+                if ptype != "tub":
+                    continue
             # Get last count for this flavor+type
             last_count_row = (
                 db.query(DailyCount)
