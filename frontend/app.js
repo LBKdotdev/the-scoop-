@@ -4662,14 +4662,20 @@ function renderPhotoReview() {
 
       let flavorCell;
       if (isUnmatched) {
-        // Dropdown to pick correct flavor
+        // Dropdown to pick correct flavor, or create new
         const opts = flavors.map(f =>
           `<option value="${f.id}" data-name="${esc(f.name)}">${esc(f.name)}</option>`
         ).join('');
+        const catOpts = FLAVOR_CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join('');
         flavorCell = `<span class="photo-unmatched-name">${esc(entry.flavor_sheet_name)}</span>
-          <select class="photo-flavor-fix" data-date-idx="${di}" data-entry-idx="${ei}" onchange="fixPhotoFlavor(this)">
-            <option value="">-- Fix match --</option>${opts}
-          </select>`;
+          <div class="photo-unmatched-controls">
+            <select class="photo-flavor-fix" data-date-idx="${di}" data-entry-idx="${ei}" onchange="fixPhotoFlavor(this)">
+              <option value="">-- Fix match --</option>${opts}
+            </select>
+            <span class="photo-or-label">or</span>
+            <select class="photo-create-cat" data-date-idx="${di}" data-entry-idx="${ei}">${catOpts}</select>
+            <button type="button" class="btn btn-primary btn-sm" onclick="createFlavorFromPhoto(${di}, ${ei})">Create</button>
+          </div>`;
       } else {
         flavorCell = esc(entry.flavor_matched_name);
       }
@@ -4706,6 +4712,40 @@ function fixPhotoFlavor(select) {
     photoImportData.dates[di].entries[ei].flavor_id = parseInt(select.value);
     photoImportData.dates[di].entries[ei].flavor_matched_name = opt.dataset.name;
     select.closest('tr').classList.remove('photo-row-unmatched');
+  }
+}
+
+async function createFlavorFromPhoto(di, ei) {
+  const entry = photoImportData.dates[di].entries[ei];
+  const name = entry.flavor_sheet_name;
+  const catSelect = document.querySelector(`.photo-create-cat[data-date-idx="${di}"][data-entry-idx="${ei}"]`);
+  const category = catSelect ? catSelect.value : 'Specials';
+
+  if (!confirm(`Create new flavor "${name}" in category "${category}"?`)) return;
+
+  try {
+    const newFlavor = await api('/api/flavors', {
+      method: 'POST',
+      body: JSON.stringify({ name, category }),
+    });
+    // Update the entry with the new flavor
+    entry.flavor_id = newFlavor.id;
+    entry.flavor_matched_name = newFlavor.name;
+    // Also update all other date sections that have the same unmatched flavor
+    photoImportData.dates.forEach(dateObj => {
+      dateObj.entries.forEach(e => {
+        if (!e.flavor_id && e.flavor_sheet_name === name) {
+          e.flavor_id = newFlavor.id;
+          e.flavor_matched_name = newFlavor.name;
+        }
+      });
+    });
+    // Reload global flavors list so future matches work
+    await loadFlavors();
+    toast(`Created "${name}" in ${category}`);
+    renderPhotoReview();
+  } catch (e) {
+    toast('Failed to create flavor: ' + e.message, 'error');
   }
 }
 

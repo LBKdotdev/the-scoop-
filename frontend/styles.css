@@ -2737,11 +2737,33 @@ tr.ml-stocked .ml-flavor { font-weight: 400; }
   margin-bottom: 4px;
 }
 
+.photo-unmatched-controls {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
 .photo-flavor-fix {
-  width: 100%;
+  flex: 1;
+  min-width: 120px;
   padding: 4px;
   font-size: 0.8rem;
   border: 1px solid var(--orange);
+  border-radius: 4px;
+  background: var(--input-bg);
+  color: var(--text-primary);
+}
+
+.photo-or-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.photo-create-cat {
+  padding: 4px;
+  font-size: 0.8rem;
+  border: 1px solid var(--border-subtle);
   border-radius: 4px;
   background: var(--input-bg);
   color: var(--text-primary);
