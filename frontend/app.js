@@ -166,7 +166,7 @@ function initTabs() {
       if (target === 'home') loadHome();
       if (target === 'dashboard') loadDashboard();
       if (target === 'count') {
-        loadSmartDefaults();
+        loadFlavors().then(() => { loadSmartDefaults(); });
         loadCountHistory();
         // Auto-focus name field for first-time users (no saved name)
         const savedName = localStorage.getItem('employee-name');
@@ -178,7 +178,7 @@ function initTabs() {
           }
         }
       }
-      if (target === 'production') { loadProductionDefaults(); loadProductionHistory(); restoreEmployeeName('prod-employee-name'); }
+      if (target === 'production') { loadFlavors().then(() => { loadProductionDefaults(); }); loadProductionHistory(); restoreEmployeeName('prod-employee-name'); }
       if (target === 'flavors') loadParLevels();
       if (target === 'reports') { initReportRangeToggle(); loadReports(); }
     });
