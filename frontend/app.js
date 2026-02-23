@@ -167,6 +167,7 @@ function initTabs() {
       if (target === 'dashboard') loadDashboard();
       if (target === 'count') {
         loadSmartDefaults();
+        loadCountHistory();
         // Auto-focus name field for first-time users (no saved name)
         const savedName = localStorage.getItem('employee-name');
         if (!savedName) {
