@@ -2972,7 +2972,7 @@ function closeSubmitConfirmModal() {
 
 async function loadCountHistory() {
   try {
-    const data = await api('/api/counts/history?days=3');
+    const data = await api('/api/counts/history?days=7');
     const wrap = document.getElementById('count-history');
     if (!data.length) {
       wrap.innerHTML = '<p class="muted">No counts recorded yet.</p>';
@@ -4654,8 +4654,9 @@ function renderPhotoReview() {
       html += `<tr class="${isUnmatched ? 'photo-row-unmatched' : ''}">
         <td>${flavorCell}</td>
         <td>${esc(entry.product_type)}</td>
-        <td><input type="number" step="0.25" min="0" class="photo-count-input"
-                   value="${entry.count}" data-date-idx="${di}" data-entry-idx="${ei}"></td>
+        <td><input type="number" inputmode="decimal" step="0.25" min="0" class="photo-count-input"
+                   value="${entry.count}" data-date-idx="${di}" data-entry-idx="${ei}"
+                   style="width:5em; text-align:right;"></td>
         <td><span class="conf-badge ${confClass}">${confPct}%</span></td>
       </tr>`;
     });
