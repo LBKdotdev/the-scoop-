@@ -4618,11 +4618,11 @@ function renderPhotoReview() {
 
   let html = '';
   data.dates.forEach((dateObj, di) => {
-    const displayDate = formatDate(dateObj.date);
     html += `<div class="photo-date-section">
       <label class="photo-date-header">
         <input type="checkbox" checked data-date-idx="${di}" class="photo-date-check">
-        <strong>${esc(displayDate || dateObj.date)}</strong>
+        <input type="date" class="photo-date-input" value="${dateObj.date || ''}"
+               data-date-idx="${di}" style="font-weight:bold; font-size:1em;">
         <input type="text" class="photo-initials-input" value="${esc(dateObj.employee_initials || '')}"
                placeholder="Initials" data-date-idx="${di}" maxlength="10">
       </label>
@@ -4706,8 +4706,10 @@ async function submitPhotoImport() {
       initials = mainName ? mainName.value.trim() : '';
     }
 
-    // Get counted_at timestamp
-    const countedAt = dateObj.date ? dateObj.date + 'T21:00:00Z' : null;
+    // Get possibly edited date value
+    const dateInput = document.querySelector(`.photo-date-input[data-date-idx="${di}"]`);
+    const dateValue = dateInput ? dateInput.value : dateObj.date;
+    const countedAt = dateValue ? dateValue + 'T21:00:00Z' : null;
 
     dateObj.entries.forEach((entry, ei) => {
       // Get possibly edited count value
