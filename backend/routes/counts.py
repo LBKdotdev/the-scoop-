@@ -195,6 +195,24 @@ def get_smart_defaults(db: Session = Depends(get_db)):
     return defaults
 
 
+@router.patch("/set-employee")
+def set_employee_name(data: dict, db: Session = Depends(get_db)):
+    """Bulk update employee_name on count entries by date range."""
+    name = data.get("employee_name", "")
+    date_from = data.get("date_from")
+    date_to = data.get("date_to")
+    if not name or not date_from or not date_to:
+        raise HTTPException(status_code=400, detail="Need employee_name, date_from, date_to")
+    rows = db.query(DailyCount).filter(
+        func.date(DailyCount.counted_at) >= date_from,
+        func.date(DailyCount.counted_at) <= date_to,
+    ).all()
+    for r in rows:
+        r.employee_name = name
+    db.commit()
+    return {"message": f"Updated {len(rows)} entries with employee_name='{name}'"}
+
+
 @router.delete("/{count_id}")
 def delete_count(count_id: int, db: Session = Depends(get_db)):
     record = db.query(DailyCount).filter(DailyCount.id == count_id).first()
