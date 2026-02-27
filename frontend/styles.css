@@ -677,9 +677,6 @@ input[type="number"] { -moz-appearance: textfield; }
 .count-flavor-name {
   font-weight: 700;
   font-size: 0.95rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   color: var(--text-primary);
 }
 
